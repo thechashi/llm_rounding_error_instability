@@ -355,8 +355,8 @@ def compare_perturbations(e1, e2, singular_idx, text="The capital of France is",
 
 # Example usage
 if __name__ == "__main__":
-    e1 = 1e-8 
-    e2 = 1e-8 + 1e-9
+    e1 = 1e-6 + 1815*2e-13
+    e2 = e1 + 2*2e-13
     singular_idx = 0  # Use the first (largest) singular vector
     
     results, rep1, rep2 = compare_perturbations(
