@@ -182,17 +182,17 @@ def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_to
                                                   n_samples=10):
     """
     Compute Lipschitz constant with random noise:
-    1. Compute avg of f(x0 + epsilon*si + rand_v) over n samples
-    2. Compute avg of f(x0 + rand_v) over n samples
+    1. Compute avg of f(x0 + epsilon*si + rand_v*si) over n samples
+    2. Compute avg of f(x0 + rand_v*si) over n samples
     3. Return ||avg_rep1 - avg_rep2|| / epsilon
     
-    where rand_v is a random vector: rand_v = epsilon * (10^-2) * uniform(-1, 1) for each dimension
+    where rand_v is a SCALAR: rand_v = noise_scale * uniform(-1, 1)
     
     Args:
         model: LLaMA model
         full_embeddings: Full sequence embeddings
         last_token_idx: Index of last token
-        direction: Direction vector in input space (should be normalized)
+        direction: Direction vector in input space (should be normalized) - this is the singular value direction
         epsilon: Perturbation magnitude
         n_samples: Number of random samples to generate
     
@@ -208,25 +208,25 @@ def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_to
         logits_pert: Perturbed logits (from avg_rep1)
     """
     device = next(model.parameters()).device
-    embed_dim = direction.shape[0]
     
     # Calculate noise scale: epsilon * (10^-2)
     noise_scale = epsilon * (10 ** -2)
     
     # Lists to store hidden states and logits for averaging
-    rep1_hidden_states = []  # f(x0 + epsilon*si + rand_v)
-    rep2_hidden_states = []  # f(x0 + rand_v)
+    rep1_hidden_states = []  # f(x0 + epsilon*si + rand_v*si)
+    rep2_hidden_states = []  # f(x0 + rand_v*si)
     rep1_logits = []
     rep2_logits = []
     
     # Generate n random samples
     for sample_idx in range(n_samples):
-        # Generate random noise vector: rand_v = noise_scale * uniform(-1, 1) for each dimension
-        rand_v = noise_scale * (2 * torch.rand(embed_dim, device=device) - 1)
+        # Generate random SCALAR noise: rand_v = noise_scale * uniform(-1, 1)
+        rand_v = noise_scale * (2 * torch.rand(1, device=device).item() - 1)  # scalar value
         
-        # ===== REP1: f(x0 + epsilon*si + rand_v) =====
+        # ===== REP1: f(x0 + epsilon*si + rand_v*si) =====
         perturbed_embeddings_rep1 = full_embeddings.clone()
-        perturbed_embeddings_rep1[0, last_token_idx, :] += epsilon * direction + rand_v
+        # Add perturbation: epsilon*direction + rand_v*direction = (epsilon + rand_v)*direction
+        perturbed_embeddings_rep1[0, last_token_idx, :] += (epsilon + rand_v) * direction
         
         with torch.no_grad():
             outputs_rep1 = model(inputs_embeds=perturbed_embeddings_rep1, output_hidden_states=True)
@@ -236,9 +236,10 @@ def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_to
         rep1_hidden_states.append(hidden_state_rep1)
         rep1_logits.append(logits_rep1)
         
-        # ===== REP2: f(x0 + rand_v) =====
+        # ===== REP2: f(x0 + rand_v*si) =====
         perturbed_embeddings_rep2 = full_embeddings.clone()
-        perturbed_embeddings_rep2[0, last_token_idx, :] += rand_v
+        # Add perturbation: rand_v*direction
+        perturbed_embeddings_rep2[0, last_token_idx, :] += rand_v * direction
         
         with torch.no_grad():
             outputs_rep2 = model(inputs_embeds=perturbed_embeddings_rep2, output_hidden_states=True)
@@ -279,7 +280,7 @@ def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_to
             orig_prob, pert_prob, 
             logit_diff, 
             avg_rep2_logits, avg_rep1_logits,
-            rep1_hidden_states_tensor, rep2_hidden_states_tensor)  
+            rep1_hidden_states_tensor, rep2_hidden_states_tensor)
 # -----------------------------
 # Main analysis function
 # -----------------------------
@@ -755,3 +756,7 @@ if __name__ == "__main__":
                 print(f"    n_samples={n_samples}: {changed_subset}/{total_subset} ({100*changed_subset/total_subset:.2f}%) token changes")
     
     print("\nDone!")
+
+'''
+nohup python3 src/experiment2_v2_avg_lipschitz.py  > exp2_avg_lipschitz_v2_2000_.txt 2>&1 &
+'''

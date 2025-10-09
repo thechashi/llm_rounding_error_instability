@@ -6,6 +6,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import warnings
 warnings.filterwarnings('ignore')
 from tqdm import tqdm
+
 # -----------------------------
 # Load LLaMA model and tokenizer
 # -----------------------------
@@ -178,14 +179,14 @@ def compute_lipschitz_along_direction(model, full_embeddings, last_token_idx, di
 # Compute Lipschitz constant along a direction WITH RANDOM NOISE
 # -----------------------------
 def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_token_idx, direction, epsilon, 
-                                                  noise_scale=1e-9, n_samples=10):
+                                                  n_samples=10):
     """
     Compute Lipschitz constant with random noise:
     1. Compute avg of f(x0 + epsilon*si + rand_v) over n samples
     2. Compute avg of f(x0 + rand_v) over n samples
     3. Return ||avg_rep1 - avg_rep2|| / epsilon
     
-    where rand_v is a random vector: rand_v = t * uniform(-1, 1) for each dimension
+    where rand_v is a random vector: rand_v = epsilon * (10^-2) * uniform(-1, 1) for each dimension
     
     Args:
         model: LLaMA model
@@ -193,7 +194,6 @@ def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_to
         last_token_idx: Index of last token
         direction: Direction vector in input space (should be normalized)
         epsilon: Perturbation magnitude
-        noise_scale: Scale t for random noise (default: 1e-9)
         n_samples: Number of random samples to generate
     
     Returns:
@@ -210,6 +210,9 @@ def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_to
     device = next(model.parameters()).device
     embed_dim = direction.shape[0]
     
+    # Calculate noise scale: epsilon * (10^-2)
+    noise_scale = epsilon * (10 ** -2)
+    
     # Lists to store hidden states and logits for averaging
     rep1_hidden_states = []  # f(x0 + epsilon*si + rand_v)
     rep2_hidden_states = []  # f(x0 + rand_v)
@@ -218,8 +221,8 @@ def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_to
     
     # Generate n random samples
     for sample_idx in range(n_samples):
-        # Generate random noise vector: rand_v = t * uniform(-1, 1) for each dimension
-        rand_v = noise_scale * (2 * torch.rand(embed_dim, device=device) - 1)  # vector in [-t, t]
+        # Generate random noise vector: rand_v = noise_scale * uniform(-1, 1) for each dimension
+        rand_v = noise_scale * (2 * torch.rand(embed_dim, device=device) - 1)
         
         # ===== REP1: f(x0 + epsilon*si + rand_v) =====
         perturbed_embeddings_rep1 = full_embeddings.clone()
@@ -245,9 +248,13 @@ def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_to
         rep2_hidden_states.append(hidden_state_rep2)
         rep2_logits.append(logits_rep2)
     
+    # Stack to create tensors of shape [n_samples, hidden_dim]
+    rep1_hidden_states_tensor = torch.stack(rep1_hidden_states)  # Shape: [n_samples, 4096]
+    rep2_hidden_states_tensor = torch.stack(rep2_hidden_states)  # Shape: [n_samples, 4096]
+    
     # Average over all samples
-    avg_rep1_hidden = torch.stack(rep1_hidden_states).mean(dim=0)  # Average hidden state
-    avg_rep2_hidden = torch.stack(rep2_hidden_states).mean(dim=0)  # Average hidden state
+    avg_rep1_hidden = rep1_hidden_states_tensor.mean(dim=0)  # Average hidden state
+    avg_rep2_hidden = rep2_hidden_states_tensor.mean(dim=0)  # Average hidden state
     avg_rep1_logits = torch.stack(rep1_logits).mean(dim=0)  # Average logits
     avg_rep2_logits = torch.stack(rep2_logits).mean(dim=0)  # Average logits
     
@@ -271,13 +278,13 @@ def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_to
             orig_token_id, pert_token_id, 
             orig_prob, pert_prob, 
             logit_diff, 
-            avg_rep2_logits, avg_rep1_logits)
-
+            avg_rep2_logits, avg_rep1_logits,
+            rep1_hidden_states_tensor, rep2_hidden_states_tensor)  
 # -----------------------------
 # Main analysis function
 # -----------------------------
 def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_powers=None, analyze_dims=None,
-                                use_noise=True, noise_scales=None, n_noise_samples=10):
+                                use_noise=True, n_noise_samples_list=None):
     """
     Analyze Lipschitz constants along top-k singular directions.
     
@@ -289,8 +296,7 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
         epsilon_powers: List of powers for epsilon values (e.g., [-1, -2, ..., -18] for 10^-1 to 10^-18)
         analyze_dims: List of dimensions to analyze (e.g., [50, 100, 200, 500, 1000, 2000, 4000, 4096])
         use_noise: Whether to add random noise analysis
-        noise_scales: List of noise scales t to test (e.g., [1e-9, 1e-10, 1e-11])
-        n_noise_samples: Number of random samples per (epsilon, noise_scale) pair
+        n_noise_samples_list: List of sample sizes to test (e.g., [1, 2, 5, 2000])
     """
     if epsilon_powers is None:
         epsilon_powers = list(range(-1, -19, -1))  # 10^-1 to 10^-18
@@ -298,8 +304,8 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
     if analyze_dims is None:
         analyze_dims = [50, 100, 200, 500, 1000, 2000, 4000, 4096]
     
-    if noise_scales is None:
-        noise_scales = [1e-9, 1e-10, 1e-11]
+    if n_noise_samples_list is None:
+        n_noise_samples_list = [1, 2, 5, 2000]
     
     device = next(model.parameters()).device
     
@@ -374,7 +380,6 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
                 'singular_value': S[k-1].item(),
                 'epsilon_power': power,
                 'epsilon': epsilon,
-                'noise_scale': None,
                 'n_samples': None,
                 'lipschitz_constant': lipschitz,
                 'output_diff_norm': numerator,
@@ -398,14 +403,15 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
             
             # WITH NOISE ANALYSIS
             if use_noise:
-                for noise_scale in noise_scales:
+                for n_samples in n_noise_samples_list:
                     (lipschitz_noise, numerator_noise,
-                     orig_tok_id_noise, pert_tok_id_noise, 
-                     orig_p_noise, pert_p_noise,
-                     logit_diff_noise, 
-                     logits_orig_noise, logits_pert_noise) = compute_lipschitz_along_direction_with_noise(
+                    orig_tok_id_noise, pert_tok_id_noise, 
+                    orig_p_noise, pert_p_noise,
+                    logit_diff_noise, 
+                    logits_orig_noise, logits_pert_noise,
+                    rep1_hidden_tensor, rep2_hidden_tensor)  = compute_lipschitz_along_direction_with_noise(
                         model, full_embeddings, last_token_idx, direction, epsilon,
-                        noise_scale=noise_scale, n_samples=n_noise_samples
+                        n_samples=n_samples
                     )
                     
                     # Decode tokens
@@ -423,8 +429,7 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
                         'singular_value': S[k-1].item(),
                         'epsilon_power': power,
                         'epsilon': epsilon,
-                        'noise_scale': noise_scale,
-                        'n_samples': n_noise_samples,
+                        'n_samples': n_samples,
                         'lipschitz_constant': lipschitz_noise,
                         'output_diff_norm': numerator_noise,
                         'logit_diff': logit_diff_noise,
@@ -440,9 +445,9 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
                     })
                     
                     if token_changed_noise:
-                        print(f"    + noise(t={noise_scale:.2e}, n={n_noise_samples}): Lipschitz={lipschitz_noise:.6f}, ||Δf||={numerator_noise:.6e}, logit: {orig_logit_val_noise:.4f}→{pert_logit_val_noise:.4f}, ||Δlogits||={logit_diff_noise:.6e} | '{orig_token_str_noise}' (p={orig_p_noise:.4f}) → '{pert_token_str_noise}' (p={pert_p_noise:.4f}) ✓")
+                        print(f"    + noise(n={n_samples}): Lipschitz={lipschitz_noise:.6f}, ||Δf||={numerator_noise:.6e}, logit: {orig_logit_val_noise:.4f}→{pert_logit_val_noise:.4f}, ||Δlogits||={logit_diff_noise:.6e} | '{orig_token_str_noise}' (p={orig_p_noise:.4f}) → '{pert_token_str_noise}' (p={pert_p_noise:.4f}) ✓")
                     else:
-                        print(f"    + noise(t={noise_scale:.2e}, n={n_noise_samples}): Lipschitz={lipschitz_noise:.6f}, ||Δf||={numerator_noise:.6e}, logit: {orig_logit_val_noise:.4f}→{pert_logit_val_noise:.4f}, ||Δlogits||={logit_diff_noise:.6e} | '{orig_token_str_noise}' (p={orig_p_noise:.4f}→{pert_p_noise:.4f})")
+                        print(f"    + noise(n={n_samples}): Lipschitz={lipschitz_noise:.6f}, ||Δf||={numerator_noise:.6e}, logit: {orig_logit_val_noise:.4f}→{pert_logit_val_noise:.4f}, ||Δlogits||={logit_diff_noise:.6e} | '{orig_token_str_noise}' (p={orig_p_noise:.4f}→{pert_p_noise:.4f})")
     
     # Analyze Lipschitz constants for specific dimensions
     print("\n" + "="*80)
@@ -484,7 +489,6 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
                 'singular_value': S[dim_idx-1].item(),
                 'epsilon_power': power,
                 'epsilon': epsilon,
-                'noise_scale': None,
                 'n_samples': None,
                 'lipschitz_constant': lipschitz,
                 'output_diff_norm': numerator,
@@ -508,15 +512,37 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
             
             # WITH NOISE ANALYSIS
             if use_noise:
-                for noise_scale in noise_scales:
+                for n_samples in n_noise_samples_list:
                     (lipschitz_noise, numerator_noise,
-                     orig_tok_id_noise, pert_tok_id_noise, 
-                     orig_p_noise, pert_p_noise,
-                     logit_diff_noise, 
-                     logits_orig_noise, logits_pert_noise) = compute_lipschitz_along_direction_with_noise(
+                    orig_tok_id_noise, pert_tok_id_noise, 
+                    orig_p_noise, pert_p_noise,
+                    logit_diff_noise, 
+                    logits_orig_noise, logits_pert_noise,
+                    rep1_hidden_tensor, rep2_hidden_tensor) = compute_lipschitz_along_direction_with_noise(
                         model, full_embeddings, last_token_idx, direction, epsilon,
-                        noise_scale=noise_scale, n_samples=n_noise_samples
+                        n_samples=n_samples
                     )
+
+                    import os
+                    from datetime import datetime
+
+                    save_dir = "hidden_states_output"
+                    os.makedirs(save_dir, exist_ok=True)
+
+                    # Generate timestamp
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+                    # Create filename with timestamp and n_samples
+                    filename_prefix = f"dim{k if 'k' in locals() else dim_idx}_eps{power}_nsamples{n_samples}_time{timestamp}"
+
+                    rep1_path = os.path.join(save_dir, f"{filename_prefix}_rep1_hidden.npy")
+                    rep2_path = os.path.join(save_dir, f"{filename_prefix}_rep2_hidden.npy")
+
+                    np.save(rep1_path, rep1_hidden_tensor.numpy())
+                    np.save(rep2_path, rep2_hidden_tensor.numpy())
+
+                    print(f"  Saved rep1_hidden_states to {rep1_path} with shape {rep1_hidden_tensor.shape}")
+                    print(f"  Saved rep2_hidden_states to {rep2_path} with shape {rep2_hidden_tensor.shape}")
                     
                     # Decode tokens
                     orig_token_str_noise = tokenizer.decode([orig_tok_id_noise])
@@ -533,8 +559,7 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
                         'singular_value': S[dim_idx-1].item(),
                         'epsilon_power': power,
                         'epsilon': epsilon,
-                        'noise_scale': noise_scale,
-                        'n_samples': n_noise_samples,
+                        'n_samples': n_samples,
                         'lipschitz_constant': lipschitz_noise,
                         'output_diff_norm': numerator_noise,
                         'logit_diff': logit_diff_noise,
@@ -550,9 +575,9 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
                     })
                     
                     if token_changed_noise:
-                        print(f"    + noise(t={noise_scale:.2e}, n={n_noise_samples}): Lipschitz={lipschitz_noise:.6f}, ||Δf||={numerator_noise:.6e}, logit: {orig_logit_val_noise:.4f}→{pert_logit_val_noise:.4f}, ||Δlogits||={logit_diff_noise:.6e} | '{orig_token_str_noise}' (p={orig_p_noise:.4f}) → '{pert_token_str_noise}' (p={pert_p_noise:.4f}) ✓")
+                        print(f"    + noise(n={n_samples}): Lipschitz={lipschitz_noise:.6f}, ||Δf||={numerator_noise:.6e}, logit: {orig_logit_val_noise:.4f}→{pert_logit_val_noise:.4f}, ||Δlogits||={logit_diff_noise:.6e} | '{orig_token_str_noise}' (p={orig_p_noise:.4f}) → '{pert_token_str_noise}' (p={pert_p_noise:.4f}) ✓")
                     else:
-                        print(f"    + noise(t={noise_scale:.2e}, n={n_noise_samples}): Lipschitz={lipschitz_noise:.6f}, ||Δf||={numerator_noise:.6e}, logit: {orig_logit_val_noise:.4f}→{pert_logit_val_noise:.4f}, ||Δlogits||={logit_diff_noise:.6e} | '{orig_token_str_noise}' (p={orig_p_noise:.4f}→{pert_p_noise:.4f})")
+                        print(f"    + noise(n={n_samples}): Lipschitz={lipschitz_noise:.6f}, ||Δf||={numerator_noise:.6e}, logit: {orig_logit_val_noise:.4f}→{pert_logit_val_noise:.4f}, ||Δlogits||={logit_diff_noise:.6e} | '{orig_token_str_noise}' (p={orig_p_noise:.4f}→{pert_p_noise:.4f})")
     
     # Combine all results
     all_results = results_topk + results_dims
@@ -574,9 +599,10 @@ if __name__ == "__main__":
     ]
     
     all_results = {}
-    epsilon_powers=list(range(-7, -11, -1)) 
-    analyze_dims=range(5) # [50, 100, 200, 500, 1000, 2000, 4000, 4096],
-    noise_scales=[1e-9] #, 1e-10, 1e-11],
+    epsilon_powers = list(range(-7, -11, -1)) 
+    analyze_dims = range(2)  # [50, 100, 200, 500, 1000, 2000, 4000, 4096]
+    n_noise_samples_list = [2000]  # List of sample sizes to test
+    
     for i, input_text in enumerate(test_inputs):
         print("\n" + "="*80)
         print(f"TEST CASE {i+1}: '{input_text}'")
@@ -586,10 +612,9 @@ if __name__ == "__main__":
             model, tokenizer, input_text, 
             top_k=5,
             epsilon_powers=epsilon_powers,
-            analyze_dims=analyze_dims, #
+            analyze_dims=analyze_dims,
             use_noise=True,
-            noise_scales=noise_scales, #, 1e-10, 1e-11],
-            n_noise_samples=2000
+            n_noise_samples_list=n_noise_samples_list
         )
         
         all_results[f"test_case_{i+1}"] = {
@@ -634,9 +659,9 @@ if __name__ == "__main__":
                 subset = topk_noise_df[topk_noise_df['dimension'] == k]
                 if len(subset) > 0:
                     print(f"    Direction {k} (σ={data['S'][k-1].item():.4f}):")
-                    for noise_scale in sorted(subset['noise_scale'].unique()):
-                        noise_subset = subset[subset['noise_scale'] == noise_scale]
-                        print(f"      Noise scale t={noise_scale:.2e}:")
+                    for n_samples in sorted(subset['n_samples'].unique()):
+                        noise_subset = subset[subset['n_samples'] == n_samples]
+                        print(f"      n_samples={n_samples}:")
                         print(f"        Lipschitz range: [{noise_subset['lipschitz_constant'].min():.6f}, {noise_subset['lipschitz_constant'].max():.6f}]")
                         print(f"        Mean Lipschitz: {noise_subset['lipschitz_constant'].mean():.6f}")
         
@@ -644,7 +669,7 @@ if __name__ == "__main__":
         dims_df = df[df['analysis_type'] == 'specific_dimension']
         if len(dims_df) > 0:
             print(f"\n  Specific Dimensions Analysis (WITHOUT noise):")
-            for dim in analyze_dims: #[50, 100, 200, 500, 1000, 2000, 4000, 4096]:
+            for dim in analyze_dims:
                 subset = dims_df[dims_df['dimension'] == dim]
                 if len(subset) > 0:
                     print(f"    Dimension {dim} (σ={subset['singular_value'].iloc[0]:.6f}):")
@@ -655,13 +680,13 @@ if __name__ == "__main__":
         dims_noise_df = df[df['analysis_type'] == 'specific_dimension_with_noise']
         if len(dims_noise_df) > 0:
             print(f"\n  Specific Dimensions Analysis (WITH noise):")
-            for dim in analyze_dims: #[50, 100, 200, 500, 1000, 2000, 4000, 4096]:
+            for dim in analyze_dims:
                 subset = dims_noise_df[dims_noise_df['dimension'] == dim]
                 if len(subset) > 0:
                     print(f"    Dimension {dim} (σ={subset['singular_value'].iloc[0]:.6f}):")
-                    for noise_scale in sorted(subset['noise_scale'].unique()):
-                        noise_subset = subset[subset['noise_scale'] == noise_scale]
-                        print(f"      Noise scale t={noise_scale:.2e}:")
+                    for n_samples in sorted(subset['n_samples'].unique()):
+                        noise_subset = subset[subset['n_samples'] == n_samples]
+                        print(f"      n_samples={n_samples}:")
                         print(f"        Lipschitz range: [{noise_subset['lipschitz_constant'].min():.6f}, {noise_subset['lipschitz_constant'].max():.6f}]")
                         print(f"        Mean Lipschitz: {noise_subset['lipschitz_constant'].mean():.6f}")
     
@@ -688,12 +713,16 @@ if __name__ == "__main__":
             
             if len(no_noise) > 0 and len(with_noise) > 0:
                 mean_lipschitz_no_noise = no_noise['lipschitz_constant'].mean()
-                mean_lipschitz_with_noise = with_noise['lipschitz_constant'].mean()
                 
                 print(f"  ε=10^{power:3d}:")
                 print(f"    Without noise: Mean Lipschitz = {mean_lipschitz_no_noise:.6f}")
-                print(f"    With noise:    Mean Lipschitz = {mean_lipschitz_with_noise:.6f}")
-                print(f"    Difference:    {abs(mean_lipschitz_with_noise - mean_lipschitz_no_noise):.6f} ({100*abs(mean_lipschitz_with_noise - mean_lipschitz_no_noise)/mean_lipschitz_no_noise:.2f}%)")
+                
+                # Break down by n_samples
+                for n_samples in sorted(with_noise['n_samples'].unique()):
+                    noise_subset = with_noise[with_noise['n_samples'] == n_samples]
+                    mean_lipschitz_with_noise = noise_subset['lipschitz_constant'].mean()
+                    print(f"    With noise (n={n_samples}): Mean Lipschitz = {mean_lipschitz_with_noise:.6f}")
+                    print(f"      Difference: {abs(mean_lipschitz_with_noise - mean_lipschitz_no_noise):.6f} ({100*abs(mean_lipschitz_with_noise - mean_lipschitz_no_noise)/mean_lipschitz_no_noise:.2f}%)")
     
     # Token change analysis
     print("\n" + "="*80)
@@ -718,11 +747,11 @@ if __name__ == "__main__":
             changed = with_noise_df['token_changed'].sum()
             print(f"  WITH noise:    {changed}/{total} ({100*changed/total:.2f}%) token changes")
             
-            # Breakdown by noise scale
-            for noise_scale in sorted(with_noise_df['noise_scale'].unique()):
-                subset = with_noise_df[with_noise_df['noise_scale'] == noise_scale]
+            # Breakdown by n_samples
+            for n_samples in sorted(with_noise_df['n_samples'].unique()):
+                subset = with_noise_df[with_noise_df['n_samples'] == n_samples]
                 total_subset = len(subset)
                 changed_subset = subset['token_changed'].sum()
-                print(f"    Noise scale t={noise_scale:.2e}: {changed_subset}/{total_subset} ({100*changed_subset/total_subset:.2f}%) token changes")
+                print(f"    n_samples={n_samples}: {changed_subset}/{total_subset} ({100*changed_subset/total_subset:.2f}%) token changes")
     
     print("\nDone!")
