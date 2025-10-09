@@ -244,7 +244,7 @@ def create_heatmap(rep1_layers, rep2_layers, e1, e2, singular_idx, save_prefix="
     print(f"Saved heatmap: {save_prefix}_e1_{e1:.2e}_e2_{e2:.2e}_sv{singular_idx}.pdf")
     plt.show()
 
-def compare_perturbations(e1, e2, singular_idx, text="The capital of France is", 
+def compare_perturbations(e1, e2, step_size, jumps, singular_idx, text="The capital of France is", 
                          threshold=1e-6, save_prefix="comparison"):
     """
     Main function to compare two perturbations
@@ -258,9 +258,7 @@ def compare_perturbations(e1, e2, singular_idx, text="The capital of France is",
         save_prefix: Prefix for saved files
     """
     print("="*80)
-    print(f"Comparing perturbations:")
-    print(f"  ε1 = {e1:.2e}")
-    print(f"  ε2 = {e2:.2e}")
+
     print(f"  Singular vector index = {singular_idx}")
     print(f"  Input text: '{text}'")
     print("="*80)
@@ -295,75 +293,89 @@ def compare_perturbations(e1, e2, singular_idx, text="The capital of France is",
     direction_np = direction.cpu().numpy()
     print_singular_vector_stats(direction_np, S[singular_idx].item(), singular_idx)
     
-    # Create perturbations
-    print(f"\n[4/6] Creating perturbations...")
-    perturbed_emb1 = original_input_emb + e1 * direction
-    perturbed_emb2 = original_input_emb + e2 * direction
-    
-    # Get layer-wise representations for both perturbations
-    print("[5/6] Computing layer-wise representations...")
-    
-    embeddings1 = embeddings.clone()
-    embeddings1[0, last_idx, :] = perturbed_emb1
-    rep1_layers = get_all_layer_hidden_states(model, embeddings1, last_idx)
-    
-    embeddings2 = embeddings.clone()
-    embeddings2[0, last_idx, :] = perturbed_emb2
-    rep2_layers = get_all_layer_hidden_states(model, embeddings2, last_idx)
-    
-    print(f"  Number of layers: {len(rep1_layers)}")
-    print(f"  Embedding dimension: {len(rep1_layers[0])}")
-    
-    # Compare
-    print(f"\n[6/6] Comparing representations (threshold={threshold})...")
-    results = compare_layer_embeddings(rep1_layers, rep2_layers, threshold)
-    
-    # Print summary
-    print("\n" + "="*80)
-    print("SUMMARY STATISTICS")
-    print("="*80)
-    print(f"{'Layer':<8} {'Changed':<12} {'% Changed':<12} {'Mean Diff':<15} {'Max Diff':<15} {'L2 Dist':<15} {'Cos Sim':<10}")
-    print("-"*80)
-    
-    for layer_idx in range(len(rep1_layers)):
-        print(f"{layer_idx:<8} "
-              f"{results['num_changed_indices'][layer_idx]:<12} "
-              f"{results['percent_changed'][layer_idx]:<12.2f} "
-              f"{results['mean_absolute_diff'][layer_idx]:<15.6e} "
-              f"{results['max_absolute_diff'][layer_idx]:<15.6e} "
-              f"{results['l2_distance'][layer_idx]:<15.6e} "
-              f"{results['cosine_similarity'][layer_idx]:<10.6f}")
-    
-    # Save results
-    print(f"\n[7/7] Saving results...")
-    np.savez(f'{save_prefix}_e1_{e1:.2e}_e2_{e2:.2e}_sv{singular_idx}.npz',
-             e1=e1,
-             e2=e2,
-             singular_idx=singular_idx,
-             singular_value=S[singular_idx].cpu().numpy(),
-             rep1_layers=np.array(rep1_layers),
-             rep2_layers=np.array(rep2_layers),
-             **results)
-    print(f"Saved: {save_prefix}_e1_{e1:.2e}_e2_{e2:.2e}_sv{singular_idx}.npz")
-    
-    # Create plots
-    plot_comparison_results(results, e1, e2, singular_idx, save_prefix)
-    create_heatmap(rep1_layers, rep2_layers, e1, e2, singular_idx, save_prefix)
-    
-    return results, rep1_layers, rep2_layers
+    for jump in jumps: 
+        e2 = e1 + step_size*jump 
+        print("\n" + "="*80)
+        print(f'Jump: {jump}')
+        print(f"Comparing perturbations:")
+        print(f"  ε1 = {e1:.15e}")
+        print(f"  ε2 = {e2:.15e}")
+        print("="*80)
+
+        # Create perturbations
+        print(f"\n[4/6] Creating perturbations...")
+        perturbed_emb1 = original_input_emb + e1 * direction
+        perturbed_emb2 = original_input_emb + e2 * direction
+        
+        # Get layer-wise representations for both perturbations
+        print("[5/6] Computing layer-wise representations...")
+        
+        embeddings1 = embeddings.clone()
+        embeddings1[0, last_idx, :] = perturbed_emb1
+        rep1_layers = get_all_layer_hidden_states(model, embeddings1, last_idx)
+        
+        embeddings2 = embeddings.clone()
+        embeddings2[0, last_idx, :] = perturbed_emb2
+        rep2_layers = get_all_layer_hidden_states(model, embeddings2, last_idx)
+        
+        print(f"  Number of layers: {len(rep1_layers)}")
+        print(f"  Embedding dimension: {len(rep1_layers[0])}")
+        
+        # Compare
+        print(f"\n[6/6] Comparing representations (threshold={threshold})...")
+        results = compare_layer_embeddings(rep1_layers, rep2_layers, threshold)
+        
+        # Print summary
+        print("\n" + "="*80)
+        print("SUMMARY STATISTICS")
+        print("="*80)
+        print(f"{'Layer':<8} {'Changed':<12} {'% Changed':<12} {'Mean Diff':<15} {'Max Diff':<15} {'L2 Dist':<15} {'Cos Sim':<10}")
+        print("-"*80)
+        
+        for layer_idx in range(len(rep1_layers)):
+            print(f"{layer_idx:<8} "
+                f"{results['num_changed_indices'][layer_idx]:<12} "
+                f"{results['percent_changed'][layer_idx]:<12.2f} "
+                f"{results['mean_absolute_diff'][layer_idx]:<15.6e} "
+                f"{results['max_absolute_diff'][layer_idx]:<15.6e} "
+                f"{results['l2_distance'][layer_idx]:<15.6e} "
+                f"{results['cosine_similarity'][layer_idx]:<10.6f}")
+        
+        # Save results
+        print(f"\n[7/7] Saving results...")
+        np.savez(f'{save_prefix}_e1_{e1:.2e}_e2_{e2:.2e}_sv{singular_idx}.npz',
+                e1=e1,
+                e2=e2,
+                singular_idx=singular_idx,
+                singular_value=S[singular_idx].cpu().numpy(),
+                rep1_layers=np.array(rep1_layers),
+                rep2_layers=np.array(rep2_layers),
+                **results)
+        print(f"Saved: {save_prefix}_e1_{e1:.2e}_e2_{e2:.2e}_sv{singular_idx}.npz")
+        
+        # Create plots
+        plot_comparison_results(results, e1, e2, singular_idx, save_prefix)
+        create_heatmap(rep1_layers, rep2_layers, e1, e2, singular_idx, save_prefix)
+        
+    return 0, 0, 0 #results, rep1_layers, rep2_layers
 
 
 # Example usage
 if __name__ == "__main__":
-    e1 = 1e-6 + 1815*2e-13
-    e2 = e1 + 2*2e-13
+    jumps = [1, 10, 100, 1000, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12]
+    e1 = 1e-6 + 1815*2e-13 # 1e-6 + 1080*2.5e-14 # 
+    step_size = 3*2e-14
+    e2 = e1 + step_size # 1e-6 + 1090*2.5e-14 # 
     singular_idx = 0  # Use the first (largest) singular vector
     
     results, rep1, rep2 = compare_perturbations(
         e1=e1, 
         e2=e2, 
+        step_size=step_size,
+        jumps = jumps,
         singular_idx=singular_idx,
         text="The capital of France is",
         threshold=0,
         save_prefix="perturbation_comparison"
+
     )
