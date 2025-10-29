@@ -1,3 +1,83 @@
+"""
+Experiment 2: Average Lipschitz Constant Across Multiple Prompts
+
+This experiment extends the single-prompt Lipschitz analysis to compute average
+Lipschitz constants across a diverse set of test prompts, providing a more
+robust characterization of model instability.
+
+Purpose:
+--------
+Measures the typical (average) Lipschitz constant of the Llama model by:
+1. Computing Jacobian and SVD for multiple different prompts
+2. Extracting the largest singular value (= Lipschitz constant) for each
+3. Analyzing the distribution of Lipschitz constants across prompts
+4. Providing statistical summary (mean, std, min, max)
+
+
+Relationship:
+-------------
+This experiment EXTENDS lipschitz_const_llama.py:
+1. Reuses the same Jacobian computation and SVD methodology
+2. Applies it to multiple prompts instead of just one
+3. Computes statistics across prompts to understand variability
+4. Answers: "Is the Lipschitz constant consistent across different inputs?"
+
+The relationship with experiment2_v2 is important:
+- This file (exp2_average_lipschitz_constant_computation.py) is the ORIGINAL version
+- exp2_v2_average_lipschitz_constant_computation.py is the REVISED version
+- Check exp2_v2_average_lipschitz_constant_computation for potential improvements or bug fixes
+
+Methodology:
+------------
+1. Load Llama model in float32 (for numerical precision)
+2. Define a diverse set of test prompts (factual, counterfactual, various topics)
+3. For each prompt:
+   a. Tokenize and extract embeddings
+   b. Compute Jacobian: ∂(last hidden state)/∂(last token embedding)
+   c. Perform SVD on Jacobian
+   d. Extract largest singular value σ_max (= Lipschitz constant)
+   e. Store result
+4. Compute statistics: mean, std, min, max, median
+5. Generate distribution plots
+
+Test Prompts:
+-------------
+Includes diverse prompts to test different contexts:
+- Factual questions (e.g., "What is the capital of France?")
+- Counterfactual questions (e.g., "What is the capital of Moon?")
+- Different topics and complexity levels
+- Various prompt lengths
+
+Use Case:
+---------
+Use this experiment to:
+- Establish typical Lipschitz constant for the model
+- Understand variability across different input contexts
+- Determine if certain types of prompts have higher/lower instability
+- Provide robust baseline for comparison with other experiments
+
+Dependencies:
+-------------
+- torch, transformers (HuggingFace)
+- numpy, pandas, tqdm
+- Llama-3.1-8B-Instruct model (float32)
+
+Key Functions:
+--------------
+- load_llama_model(): Load model in float32
+- model_forward_last_hidden(): Forward pass for Jacobian computation
+- compute_jacobian(): Compute Jacobian matrix
+- perform_svd(): SVD analysis to extract singular values
+- (main loop): Iterate over prompts and compute average statistics
+
+Output:
+-------
+- Timestamped results directory (results/exp2_YYYY-MM-DD_HH-MM-SS/)
+- CSV file with Lipschitz constants for each prompt
+- Statistical summary (mean, std, min, max, median)
+- Distribution plots of Lipschitz constants across prompts
+"""
+
 import torch
 import torch.nn.functional as F
 import pandas as pd
@@ -6,6 +86,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import warnings
 warnings.filterwarnings('ignore')
 from tqdm import tqdm
+import os
+from datetime import datetime
 
 # -----------------------------
 # Load LLaMA model and tokenizer
@@ -284,10 +366,10 @@ def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_to
 # Main analysis function
 # -----------------------------
 def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_powers=None, analyze_dims=None,
-                                use_noise=True, n_noise_samples_list=None):
+                                use_noise=True, n_noise_samples_list=None, output_dir=None):
     """
     Analyze Lipschitz constants along top-k singular directions.
-    
+
     Args:
         model: LLaMA model
         tokenizer: Tokenizer
@@ -297,6 +379,7 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
         analyze_dims: List of dimensions to analyze (e.g., [50, 100, 200, 500, 1000, 2000, 4000, 4096])
         use_noise: Whether to add random noise analysis
         n_noise_samples_list: List of sample sizes to test (e.g., [1, 2, 5, 2000])
+        output_dir: Directory to save output files (default: "hidden_states_output")
     """
     if epsilon_powers is None:
         epsilon_powers = list(range(-1, -19, -1))  # 10^-1 to 10^-18
@@ -523,10 +606,7 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
                         n_samples=n_samples
                     )
 
-                    import os
-                    from datetime import datetime
-
-                    save_dir = "hidden_states_output"
+                    save_dir = output_dir if output_dir is not None else "hidden_states_output"
                     os.makedirs(save_dir, exist_ok=True)
 
                     # Generate timestamp
@@ -590,7 +670,13 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
 if __name__ == "__main__":
     print("Loading LLaMA 3.1 model...")
     model, tokenizer = load_llama_model()
-    
+
+    # Create experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp2_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+    print(f"Saving results to: {exp_dir}")
+
     # Test with different inputs
     test_inputs = [
         "The capital of France is",
@@ -609,12 +695,13 @@ if __name__ == "__main__":
         print("="*80)
         
         results_df, jacobian, U, S, Vt = analyze_lipschitz_constants(
-            model, tokenizer, input_text, 
+            model, tokenizer, input_text,
             top_k=5,
             epsilon_powers=epsilon_powers,
             analyze_dims=analyze_dims,
             use_noise=True,
-            n_noise_samples_list=n_noise_samples_list
+            n_noise_samples_list=n_noise_samples_list,
+            output_dir=exp_dir
         )
         
         all_results[f"test_case_{i+1}"] = {
@@ -627,8 +714,8 @@ if __name__ == "__main__":
         
         # Save results
         filename = f"lipschitz_analysis_test_{i+1}_with_noise.csv"
-        results_df.to_csv(filename, index=False)
-        print(f"\nSaved results to {filename}")
+        results_df.to_csv(os.path.join(exp_dir, filename), index=False)
+        print(f"\nSaved results to {os.path.join(exp_dir, filename)}")
     
     # Summary analysis
     print("\n" + "="*80)

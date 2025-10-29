@@ -1,3 +1,21 @@
+"""
+Experiment 7 Part 1: Logit Difference Heatmap Generation
+
+This script generates 2D heatmaps showing how the logit difference (L1 - L2) changes
+when perturbing an optimized embedding along two singular vector directions simultaneously.
+
+The process:
+1. Finds an embedding x0 where the top-2 tokens have equal logits (L1(x0) ≈ L2(x0))
+2. Computes the Jacobian and its SVD to identify sensitive directions
+3. Creates a 2D grid of perturbations: x = x0 + e1*h1 + e2*h2
+   - h1, h2 are right singular vectors from the Jacobian SVD
+   - e1, e2 are perturbation magnitudes (epsilon values)
+4. Evaluates L1(x) - L2(x) at each grid point
+5. Generates both color heatmaps and binary decision boundary maps
+
+The heatmaps reveal the complex, non-linear decision boundary between token predictions
+and demonstrate how small perturbations can cause unpredictable logit flips.
+"""
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -7,6 +25,8 @@ import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore')
 from tqdm import tqdm
+import os
+from datetime import datetime
 
 def load_model(model_path):
     """Load model and tokenizer"""
@@ -141,8 +161,21 @@ def compute_svd_directions(model, tokenizer, embeddings, last_token_idx):
     # Vt has shape (embedding_dim, embedding_dim)
     # Right singular vectors are rows of Vt
     return Vt
+# # Normal
+# e_min=-1e-6, e_max=1e-6, step=1e-8
 
-def compute_logit_difference_grid(model, embeddings, last_token_idx, x0, h1, h2, token_indices, e_min=-1e-6, e_max=1e-6, step=1e-8):
+# # 2x zoom (half the range)
+# e_min=-5e-7, e_max=5e-7, step=5e-9
+
+# # 4x zoom (quarter the range)
+# e_min=-2.5e-7, e_max=2.5e-7, step=2.5e-9
+
+# # 10x zoom
+# e_min=-1e-7, e_max=1e-7, step=1e-9
+
+# # 100x zoom (focused around origin)
+# e_min=-1e-8, e_max=1e-8, step=1e-10
+def compute_logit_difference_grid(model, embeddings, last_token_idx, x0, h1, h2, token_indices, e_min=-2.5e-7, e_max=2.5e-7, step=2.5e-9):
     """Compute L1(x0 + e1*h1 + e2*h2) - L2(x0 + e1*h1 + e2*h2) over a grid"""
     device = next(model.parameters()).device
     W_U = get_unembedding_matrix(model)
@@ -224,8 +257,14 @@ def save_matrix(grid, e1_values, e2_values, filename):
     print(f"Saved matrix: {filename}")
 
 if __name__ == "__main__":
+    # Create timestamped experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp7_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+    print(f"Results will be saved to: {exp_dir}\n")
+
     MODEL_PATH = "/home/chashi/Desktop/Research/My Projects/models/Llama-3.1-8B-Instruct"
-    
+
     torch.cuda.empty_cache()
     
     print("Loading model...")
@@ -238,7 +277,7 @@ if __name__ == "__main__":
         model, tokenizer, input_text,
         num_iterations=1000,
         lr=0.001,
-        tolerance=1e-9
+        tolerance=1e-10
     )
     
     print("\nStep 2: Computing SVD...")
@@ -257,38 +296,38 @@ if __name__ == "__main__":
     grid1, e1_vals, e2_vals = compute_logit_difference_grid(
         model, embeddings, last_token_idx, x0, h1_first, h2_second, token_indices
     )
-    save_heatmap(grid1, e1_vals, e2_vals, 
-                 "h1=1st, h2=2nd singular vectors", 
-                 "logit_diff_1st_2nd.png")
+    save_heatmap(grid1, e1_vals, e2_vals,
+                 "h1=1st, h2=2nd singular vectors",
+                 os.path.join(exp_dir, "logit_diff_1st_2nd.png"))
     save_bw_heatmap(grid1, e1_vals, e2_vals,
                     "h1=1st, h2=2nd singular vectors",
-                    "logit_diff_1st_2nd_bw.png")
-    save_matrix(grid1, e1_vals, e2_vals, "logit_diff_1st_2nd.npz")
+                    os.path.join(exp_dir, "logit_diff_1st_2nd_bw.png"))
+    save_matrix(grid1, e1_vals, e2_vals, os.path.join(exp_dir, "logit_diff_1st_2nd.npz"))
     
     # Case 2: h1 = first, h2 = tenth
     print("\nCase 2: h1=1st, h2=10th singular vectors")
     grid2, e1_vals, e2_vals = compute_logit_difference_grid(
         model, embeddings, last_token_idx, x0, h1_first, h2_tenth, token_indices
     )
-    save_heatmap(grid2, e1_vals, e2_vals, 
-                 "h1=1st, h2=10th singular vectors", 
-                 "logit_diff_1st_10th.png")
+    save_heatmap(grid2, e1_vals, e2_vals,
+                 "h1=1st, h2=10th singular vectors",
+                 os.path.join(exp_dir, "logit_diff_1st_10th.png"))
     save_bw_heatmap(grid2, e1_vals, e2_vals,
                     "h1=1st, h2=10th singular vectors",
-                    "logit_diff_1st_10th_bw.png")
-    save_matrix(grid2, e1_vals, e2_vals, "logit_diff_1st_10th.npz")
+                    os.path.join(exp_dir, "logit_diff_1st_10th_bw.png"))
+    save_matrix(grid2, e1_vals, e2_vals, os.path.join(exp_dir, "logit_diff_1st_10th.npz"))
     
     # Case 3: h1 = first, h2 = 4096th
     print("\nCase 3: h1=1st, h2=4096th singular vectors")
     grid3, e1_vals, e2_vals = compute_logit_difference_grid(
         model, embeddings, last_token_idx, x0, h1_first, h2_last, token_indices
     )
-    save_heatmap(grid3, e1_vals, e2_vals, 
-                 "h1=1st, h2=4096th singular vectors", 
-                 "logit_diff_1st_4096th.png")
+    save_heatmap(grid3, e1_vals, e2_vals,
+                 "h1=1st, h2=4096th singular vectors",
+                 os.path.join(exp_dir, "logit_diff_1st_4096th.png"))
     save_bw_heatmap(grid3, e1_vals, e2_vals,
                     "h1=1st, h2=4096th singular vectors",
-                    "logit_diff_1st_4096th_bw.png")
-    save_matrix(grid3, e1_vals, e2_vals, "logit_diff_1st_4096th.npz")
+                    os.path.join(exp_dir, "logit_diff_1st_4096th_bw.png"))
+    save_matrix(grid3, e1_vals, e2_vals, os.path.join(exp_dir, "logit_diff_1st_4096th.npz"))
     
     print("\nAll done!") 

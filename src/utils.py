@@ -1,8 +1,9 @@
 """
-Core Utility Module for LLM Rounding Error Instability Research (Notebook Copy)
+Core Utility Module for LLM Rounding Error Instability Research
 
-This module is an IDENTICAL COPY of src/utils.py, provided for convenience in
-notebook environments.
+This module provides essential utility functions for loading and interacting with
+Large Language Models (LLMs) in the context of numerical precision and instability
+research.
 
 Purpose:
 --------
@@ -14,19 +15,16 @@ Provides standardized functions for:
 
 Related Files:
 --------------
-- src/utils.py: ORIGINAL VERSION - this is a duplicate
-- notebooks/project_utils.py: Extended version with JSON config loading
-- notebooks/run_lpt_logits_probs_experiment.py: Uses these utilities
-
-Relationship:
--------------
-This file is a DUPLICATE of src/utils.py for notebook convenience. Any changes
-should be synchronized between both files. Consider using project_utils.py for
-enhanced functionality with config file support.
+- notebooks/utils.py: Identical copy of this file for notebook experiments
+- notebooks/project_utils.py: Extended version with JSON config loading (depends on this file's functions)
+- Most experiment files (experiment*.py) use these utilities for model loading
+- experiment6_part1_optimize_equal_probs.py: Uses model loading functions
+- experiment7_logit_maps.py: Uses model loading and hidden state extraction
 
 Dependencies:
 -------------
 - torch, transformers (HuggingFace)
+- Used by nearly all experiment scripts in the project
 
 Key Functions:
 --------------
@@ -35,6 +33,10 @@ Key Functions:
 - get_first_token_logits(): Retrieves next token predictions and probabilities
 - generate_response_with_params(): Full-featured text generation with control
 - generate_tokens_with_logits(): Step-by-step generation with logit tracking
+
+Note:
+-----
+This file is duplicated in notebooks/utils.py for convenience in notebook environments.
 """
 
 import torch

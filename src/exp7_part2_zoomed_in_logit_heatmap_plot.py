@@ -1,6 +1,24 @@
+"""
+Experiment 7 Part 2: Zoomed-In Logit Heatmap Plotting
+
+This script provides zooming functionality for the heatmaps generated in exp7_part1.
+It allows focused analysis of specific regions in the perturbation space where interesting
+behavior (such as rapid logit flips or complex decision boundaries) was observed.
+
+Features:
+1. Loads previously computed logit difference matrices (.npz files)
+2. Extracts a specified rectangular region defined by e1 and e2 ranges
+3. Generates both color and binary (black & white) heatmap visualizations
+4. Maintains proper scaling and axis labels for the zoomed region
+
+This is useful for examining fine-grained patterns in the decision boundary that may be
+obscured in the full-scale heatmaps, revealing fractal-like or chaotic structures.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
+import os
+from datetime import datetime
 
 def load_matrix(filename):
     """Load the saved matrix and axis values"""
@@ -15,7 +33,7 @@ def find_nearest_idx(array, value):
     idx = (np.abs(array - value)).argmin()
     return idx
 
-def zoom_and_plot(filename, e1_start, e1_end, e2_start, e2_end, output_prefix=None):
+def zoom_and_plot(filename, e1_start, e1_end, e2_start, e2_end, output_prefix=None, exp_dir=None):
     """Load matrix and plot zoomed region"""
     # Load data
     grid, e1_values, e2_values = load_matrix(filename)
@@ -54,31 +72,35 @@ def zoom_and_plot(filename, e1_start, e1_end, e2_start, e2_end, output_prefix=No
     # Set output filename
     if output_prefix is None:
         output_prefix = filename.replace('.npz', '_zoomed')
-    
+
     # Plot color heatmap
     plt.figure(figsize=(10, 8))
-    plt.imshow(zoomed_grid.T, 
-               extent=[actual_e1_start, actual_e1_end, actual_e2_start, actual_e2_end], 
+    plt.imshow(zoomed_grid.T,
+               extent=[actual_e1_start, actual_e1_end, actual_e2_start, actual_e2_end],
                origin='lower', cmap='RdBu_r', aspect='auto')
     plt.colorbar(label='L1 - L2')
     plt.xlabel('e1')
     plt.ylabel('e2')
     plt.title(f'Zoomed: e1=[{actual_e1_start:.2e}, {actual_e1_end:.2e}], e2=[{actual_e2_start:.2e}, {actual_e2_end:.2e}]')
     color_filename = f"{output_prefix}_color.png"
+    if exp_dir is not None:
+        color_filename = os.path.join(exp_dir, os.path.basename(color_filename))
     plt.savefig(color_filename, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"Saved: {color_filename}")
-    
+
     # Plot black & white heatmap
     binary_grid = (zoomed_grid >= 0).astype(int)
     plt.figure(figsize=(10, 8))
-    plt.imshow(binary_grid.T, 
-               extent=[actual_e1_start, actual_e1_end, actual_e2_start, actual_e2_end], 
+    plt.imshow(binary_grid.T,
+               extent=[actual_e1_start, actual_e1_end, actual_e2_start, actual_e2_end],
                origin='lower', cmap='binary', aspect='auto', vmin=0, vmax=1)
     plt.xlabel('e1')
     plt.ylabel('e2')
     plt.title(f'Zoomed (Binary): e1=[{actual_e1_start:.2e}, {actual_e1_end:.2e}], e2=[{actual_e2_start:.2e}, {actual_e2_end:.2e}]')
     bw_filename = f"{output_prefix}_bw.png"
+    if exp_dir is not None:
+        bw_filename = os.path.join(exp_dir, os.path.basename(bw_filename))
     plt.savefig(bw_filename, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"Saved: {bw_filename}")
@@ -86,26 +108,33 @@ def zoom_and_plot(filename, e1_start, e1_end, e2_start, e2_end, output_prefix=No
     return zoomed_grid, zoomed_e1, zoomed_e2
 
 if __name__ == "__main__":
+    # Create timestamped experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp7_part2_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+    print(f"Results will be saved to: {exp_dir}\n")
+
     parser = argparse.ArgumentParser(description='Zoom into saved logit difference matrices')
     parser.add_argument('filename', type=str, help='Path to .npz file')
     parser.add_argument('--e1_start', type=float, required=True, help='Start of e1 range')
     parser.add_argument('--e1_end', type=float, required=True, help='End of e1 range')
     parser.add_argument('--e2_start', type=float, required=True, help='Start of e2 range')
     parser.add_argument('--e2_end', type=float, required=True, help='End of e2 range')
-    parser.add_argument('--output', type=str, default=None, 
+    parser.add_argument('--output', type=str, default=None,
                         help='Output prefix for saved files (default: filename_zoomed)')
-    
+
     args = parser.parse_args()
-    
+
     zoom_and_plot(
         args.filename,
         args.e1_start,
         args.e1_end,
         args.e2_start,
         args.e2_end,
-        args.output
+        args.output,
+        exp_dir
     )
-    
+
     print("\nDone!")
 
 # Example usage:

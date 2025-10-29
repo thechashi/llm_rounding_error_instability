@@ -1,4 +1,112 @@
+"""
+Experiment 4 Part 4: Representation Comparison Visualization
+
+This script creates visualization plots comparing hidden representations from
+different GPU runs, showing how similarity evolves across generation steps and
+highlighting divergence points.
+
+Purpose:
+--------
+Generates publication-quality visualizations showing:
+1. Cosine similarity across all generation positions
+2. L2 distance between representations across positions
+3. Visual identification of divergence points
+4. Trends in representation similarity over generation
+
+
+Input:
+------
+Requires two .npy files containing representations from different GPU runs:
+- repr_file1: representations.npy from GPU 0 run
+- repr_file2: representations.npy from GPU 1 run
+- Optional: divergence_idx from part2 analysis
+
+Plot Structure:
+---------------
+Creates a 2-subplot figure:
+- Top plot: Cosine similarity across positions (y-axis: similarity, x-axis: position)
+- Bottom plot: L2 distance across positions (y-axis: distance, x-axis: position)
+
+If divergence_idx provided:
+- Plots are truncated at divergence point
+- Vertical red line marks divergence
+- Helps visualize how similarity degrades before divergence
+
+Methodology:
+------------
+1. Load representation arrays from both GPU runs
+2. For each token position:
+   a. Compute cosine similarity: 1 - cosine_distance(repr1[i], repr2[i])
+   b. Compute L2 distance: ||repr1[i] - repr2[i]||
+3. Plot both metrics across all positions
+4. Mark divergence point if provided
+5. Save high-resolution plot
+
+Use Case:
+---------
+Use this script to:
+- Visualize how GPU-specific differences evolve during generation
+- Identify if representations drift gradually or diverge suddenly
+- Understand the relationship between representation similarity and output divergence
+- Create figures for papers/presentations
+
+Interpretation:
+---------------
+High cosine similarity (close to 1.0):
+- Representations are nearly identical
+- GPUs producing similar outputs
+
+Low cosine similarity (< 0.99):
+- Representations are diverging
+- Likely to produce different tokens soon
+
+Increasing L2 distance:
+- Representations drifting apart
+- Accumulation of numerical differences
+
+Sharp drop at divergence:
+- Sudden change in representation space
+- May indicate token flip causing trajectory change
+
+Dependencies:
+-------------
+- numpy, matplotlib, scipy
+
+Key Functions:
+--------------
+- plot_representation_comparison(): Main plotting function
+  * Computes similarity metrics
+  * Creates dual-subplot visualization
+  * Handles divergence marking
+
+Output:
+-------
+- High-resolution PNG plot (default: repr_comparison.png)
+- Shows cosine similarity and L2 distance trends
+- Marked divergence point (if provided)
+
+Usage Example:
+--------------
+```python
+plot_representation_comparison(
+    'results/exp4_gpu0/question_0/representations.npy',
+    'results/exp4_gpu1/question_0/representations.npy',
+    output_file='comparison_q0.png',
+    divergence_idx=15  # From part2 analysis
+)
+```
+
+Note:
+-----
+These visualizations are crucial for understanding whether divergences are:
+- Gradual (accumulation of small differences)
+- Sudden (catastrophic divergence at specific token)
+- Predictable (consistent patterns across questions)
+"""
+
 import numpy as np
+import os
+from datetime import datetime
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import cosine
 import sys
@@ -131,19 +239,25 @@ if __name__ == "__main__":
         print("Usage: python plot_repr.py <repr_file1.npy> <repr_file2.npy> [output.png] [divergence_index]")
         print("Example: python plot_repr.py repr1.npy repr2.npy comparison.png 50")
         sys.exit(1)
-    
+
+    # Create timestamped experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp4_part4_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+
     repr_file1 = sys.argv[1]
     repr_file2 = sys.argv[2]
-    output_file = sys.argv[3] if len(sys.argv) > 3 and not sys.argv[3].isdigit() else 'repr_comparison.png'
+    output_filename = sys.argv[3] if len(sys.argv) > 3 and not sys.argv[3].isdigit() else 'repr_comparison.png'
+    output_file = os.path.join(exp_dir, output_filename)
     divergence_idx = None
-    
+
     # Handle divergence index - could be 3rd or 4th argument
     if len(sys.argv) > 3:
         if sys.argv[3].isdigit():
             divergence_idx = int(sys.argv[3])
         elif len(sys.argv) > 4 and sys.argv[4].isdigit():
             divergence_idx = int(sys.argv[4])
-    
+
     plot_representation_comparison(repr_file1, repr_file2, output_file, divergence_idx)
 """
 python3 src/experiment4_part4_rep_com_plot.py "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/exp4_generation_results_A5000_2x24GB/question_01/representations.npy" "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/exp4_generation_results_A6000_48GB/question_01/representations.npy" exp4_q1_reps.png 52

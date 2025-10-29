@@ -1,3 +1,100 @@
+"""
+Experiment 5: Layer-wise and Module-wise Jacobian Analysis
+
+This experiment extends experiment1 by computing LAYER-SPECIFIC Jacobians and
+analyzing instability at individual layer submodules (attention, MLP, etc.),
+providing the most granular view of instability propagation through the model.
+
+Purpose:
+--------
+Performs fine-grained instability analysis by:
+1. Computing Jacobian SVD for EACH LAYER separately (not just full model)
+2. Analyzing submodule contributions (self-attention, MLP, layer norms)
+3. Testing perturbations along layer-specific singular directions
+4. Understanding which layers and submodules amplify instability
+
+
+
+Key Differences from experiment1:
+1. experiment1: Computes ONE Jacobian for full model
+2. experiment5: Computes SEPARATE Jacobian for each layer
+3. experiment5 adds: Submodule-level analysis (attention vs MLP contributions)
+4. experiment5 provides: Layer-specific sensitivity directions
+
+This allows answering:
+- Which layers have highest Lipschitz constants?
+- Do different layers amplify instability along different directions?
+- How do attention and MLP submodules contribute to instability?
+- Can we localize instability to specific architectural components?
+
+Methodology:
+------------
+1. Load Llama model in float32
+2. Register hooks to capture layer submodule activations
+3. For each layer:
+   a. Compute Jacobian: ∂(layer output)/∂(layer input)
+   b. Perform SVD on layer-specific Jacobian
+   c. Extract layer-specific singular values and vectors
+   d. Test perturbations along top singular directions
+   e. Analyze submodule (attention, MLP) contributions
+4. Compare Lipschitz constants across layers
+5. Identify which layers/submodules are most sensitive
+
+Analysis Components:
+--------------------
+1. Layer-specific Lipschitz constants (largest singular value per layer)
+2. Singular vector directions for each layer
+3. Submodule sensitivity:
+   - Self-attention contribution to instability
+   - MLP (feed-forward) contribution to instability
+   - Layer normalization effects
+4. Perturbation propagation through layers
+
+Use Case:
+---------
+Use this experiment to:
+- Identify which layers are most vulnerable to instability
+- Understand if early layers or late layers amplify more
+- Determine if attention or MLP is primary instability source
+- Guide architectural modifications to reduce instability
+- Understand layer-by-layer error propagation
+
+Key Findings (Typical):
+-----------------------
+- Later layers often have higher Lipschitz constants
+- Attention layers may show different sensitivity patterns than MLPs
+- Instability can concentrate in specific layers
+- Layer norms help but don't eliminate instability
+
+Dependencies:
+-------------
+- torch, transformers (HuggingFace)
+- numpy, matplotlib, seaborn, scipy
+- Llama-3.1-8B-Instruct model (float32)
+
+Key Functions:
+--------------
+- compute_jacobian_svd_whole_model(): Full-model Jacobian SVD (for comparison)
+- register_hooks_for_layer(): Hook into layer submodules to capture activations
+- compare_perturbations_submodules(): Test perturbations and analyze submodule
+  contributions
+- (main analysis loop): Iterate over layers, compute layer-specific Jacobians
+
+Output:
+-------
+- Timestamped results directory (results/exp5_YYYY-MM-DD_HH-MM-SS/)
+- Per-layer Lipschitz constants
+- Singular values and vectors for each layer
+- Submodule contribution analysis
+- Layer-by-layer sensitivity comparison
+
+Note:
+-----
+This experiment provides the MOST GRANULAR ANALYSIS in the project, essential
+for understanding the architectural sources of instability and guiding potential
+mitigation strategies (e.g., which layers to modify, attention vs MLP focus).
+"""
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -5,6 +102,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import seaborn as sns
 from scipy import stats
 from collections import OrderedDict
+import os
+from datetime import datetime
 
 def load_model(model_path="/home/chashi/Desktop/Research/My Projects/models/Llama-3.1-8B-Instruct"):
     tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -399,6 +498,12 @@ def compare_perturbations_submodules(e1, e2, step_size, jumps, layer_idx, singul
 
 # Example usage
 if __name__ == "__main__":
+    # Create timestamped experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp5_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+    print(f"Results will be saved to: {exp_dir}\n")
+
     jumps = [1] #, 10, 100, 1000, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12]
     e1 = 1e-6 + 1815*2e-13
     step_size = 3*2e-14
@@ -414,7 +519,7 @@ if __name__ == "__main__":
         singular_idx=singular_idx,
         text="The capital of France is",
         threshold=0,
-        save_prefix="submodule_whole_model_svd"
+        save_prefix=os.path.join(exp_dir, "submodule_whole_model_svd")
     )
 # import torch
 # from transformers import AutoModelForCausalLM, AutoTokenizer

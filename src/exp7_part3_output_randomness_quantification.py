@@ -1,8 +1,29 @@
+"""
+Experiment 7 Part 3: Output Randomness Quantification
+
+This script performs comprehensive statistical analysis to quantify the randomness and chaos
+in the decision boundary between token predictions. It provides multiple metrics to demonstrate
+that small perturbations lead to unpredictable and seemingly random logit flips.
+
+Analysis metrics computed:
+1. Flip Frequency: Percentage of adjacent grid cells with different predictions (local instability)
+2. Region Fragmentation: Number of disconnected prediction regions (spatial chaos)
+3. Spatial Autocorrelation (Moran's I): Measures how predictions correlate with neighbors
+4. Local Entropy: Unpredictability in local neighborhoods (max entropy = random)
+5. Gradient Magnitude: How rapidly logits change across the space (sensitivity)
+6. Zero-Crossing Density: How often the decision boundary is crossed (complexity)
+7. Chi-Square Test: Statistical test for spatial randomness
+
+The script generates a randomness score and concludes whether the decision boundary exhibits
+strong chaotic/random behavior, providing quantitative evidence of model instability.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
 from scipy.ndimage import label
 import argparse
+import os
+from datetime import datetime
 
 def load_matrix(filename):
     """Load the saved matrix and axis values"""
@@ -265,7 +286,7 @@ def analyze_decision_boundary_randomness(grid, e1_values, e2_values):
         'randomness_score': len(randomness_indicators)
     }
 
-def create_analysis_plots(grid, e1_values, e2_values, output_prefix):
+def create_analysis_plots(grid, e1_values, e2_values, output_prefix, exp_dir=None):
     """Create visualization plots for the analysis"""
     binary_grid = (grid >= 0).astype(int)
     
@@ -329,30 +350,38 @@ def create_analysis_plots(grid, e1_values, e2_values, output_prefix):
     
     plt.tight_layout()
     filename = f"{output_prefix}_analysis.png"
+    if exp_dir is not None:
+        filename = os.path.join(exp_dir, os.path.basename(filename))
     plt.savefig(filename, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"\nSaved analysis plots: {filename}")
 
 if __name__ == "__main__":
+    # Create timestamped experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp7_part3_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+    print(f"Results will be saved to: {exp_dir}\n")
+
     parser = argparse.ArgumentParser(description='Analyze randomness in decision boundary')
     parser.add_argument('filename', type=str, help='Path to .npz file')
-    parser.add_argument('--output', type=str, default=None, 
+    parser.add_argument('--output', type=str, default=None,
                         help='Output prefix for plots')
-    
+
     args = parser.parse_args()
-    
+
     # Load matrix
     grid, e1_values, e2_values = load_matrix(args.filename)
-    
+
     # Run analysis
     results = analyze_decision_boundary_randomness(grid, e1_values, e2_values)
-    
+
     # Create plots
     output_prefix = args.output if args.output else args.filename.replace('.npz', '')
-    create_analysis_plots(grid, e1_values, e2_values, output_prefix)
-    
+    create_analysis_plots(grid, e1_values, e2_values, output_prefix, exp_dir)
+
     print("\nAnalysis complete!")
 
 # Example usage:
-# python analyze_randomness.py logit_diff_1st_2nd.npz
+# python src/experiment7_part3_randomness_calc.py "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/logit_diff_1st_2nd.npz" --output "RSV1and2"
 # python analyze_randomness.py logit_diff_1st_2nd.npz --output my_analysis

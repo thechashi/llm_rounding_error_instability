@@ -1,9 +1,30 @@
+"""
+This script explores a geometric approach to finding input embeddings that produce equal logits for the top-2 most probable next tokens in a large language model.
+
+The core idea is based on the observation that the logit for a token `i` is computed as the dot product of the final hidden state `h` and the token's unembedding vector `v_i` from the unembedding matrix `W_U`.
+To make the logits for two tokens, `v1` and `v2`, equal, we need:
+h · v1 = h · v2
+This can be rewritten as:
+h · (v1 - v2) = 0
+
+This means the final hidden state `h` must be orthogonal to the difference vector of the two token unembeddings.
+
+This script implements an optimization process to achieve this:
+1.  It takes an input text and identifies the top-2 predicted next tokens.
+2.  It then freezes the model's parameters and optimizes the input embeddings via gradient descent.
+3.  The loss function is `(h · (v1 - v2))^2`, which drives the dot product to zero.
+4.  The optimization modifies only the embeddings, not the model weights.
+
+The script saves the optimized embedding and the resulting hidden state for further analysis.
+"""
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import warnings
 import numpy as np
+import os
+from datetime import datetime
 warnings.filterwarnings('ignore')
 
 def load_model(model_path):
@@ -216,10 +237,16 @@ def optimize_for_equal_top2_geometric(
 
 if __name__ == "__main__":
     MODEL_PATH = "/home/chashi/Desktop/Research/My Projects/models/Llama-3.1-8B-Instruct"
-    
+
+    # Create timestamped experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp6_part1_geom_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+    print(f"Saving results to: {exp_dir}\n")
+
     # Clear cache before starting
     torch.cuda.empty_cache()
-    
+
     model, tokenizer = load_model(MODEL_PATH)
     
     input_text = "The capital of France is"
@@ -232,15 +259,15 @@ if __name__ == "__main__":
     )
     
     # Save results
-    np.save("optimized_last_token_embedding_geometric.npy", opt_embedding.numpy())
-    np.save("optimized_last_hidden_geometric.npy", last_hidden.numpy())
+    np.save(os.path.join(exp_dir, "optimized_last_token_embedding_geometric.npy"), opt_embedding.numpy())
+    np.save(os.path.join(exp_dir, "optimized_last_hidden_geometric.npy"), last_hidden.numpy())
     torch.save({
         'full_embeddings': full_embeddings.detach().cpu(),
         'last_token_idx': last_idx,
         'input_text': input_text
-    }, "optimized_state_geometric.pt")
-    
+    }, os.path.join(exp_dir, "optimized_state_geometric.pt"))
+
     print("\nSaved:")
-    print("  - optimized_last_token_embedding_geometric.npy")
-    print("  - optimized_last_hidden_geometric.npy")
-    print("  - optimized_state_geometric.pt")
+    print(f"  - {os.path.join(exp_dir, 'optimized_last_token_embedding_geometric.npy')}")
+    print(f"  - {os.path.join(exp_dir, 'optimized_last_hidden_geometric.npy')}")
+    print(f"  - {os.path.join(exp_dir, 'optimized_state_geometric.pt')}")

@@ -1,3 +1,71 @@
+"""
+Llama Model Instability Checker
+
+This script tests the numerical instability of Llama models by applying small
+perturbations to input embeddings and measuring the impact on output predictions,
+with special attention to layer normalization effects.
+
+Purpose:
+--------
+Empirically measures how sensitive Llama model predictions are to small numerical
+perturbations in the embedding space, accounting for the final RMSNorm layer that
+precedes the language modeling head.
+
+
+Relationship:
+-------------
+This script is similar to gpt_oss_instability_check.py but with key differences:
+1. Tests Llama-3.1-8B-Instruct instead of GPT-OSS
+2. Uses bfloat16 precision (GPT version uses float32 on CPU)
+3. Accounts for final RMSNorm layer effects on hidden states
+4. Provides more detailed hidden state analysis (before/after normalization)
+5. GPU-accelerated execution
+
+The findings from this script motivated:
+- experiment1-3: Layer-wise and precision analysis
+- experiment4: GPU-specific behavior comparison
+- experiment5: Submodule-level instability analysis
+
+Test Methodology:
+-----------------
+1. Load Llama model with bfloat16 precision
+2. Extract input token embeddings
+3. Apply small Gaussian noise to token embeddings
+4. Forward pass with perturbed embeddings
+5. Extract hidden states BEFORE and AFTER final RMSNorm
+6. Compare output logits and predictions
+7. Measure sensitivity across different perturbation magnitudes
+
+Key Features:
+-------------
+- Extracts ALL token hidden states (not just last token)
+- Compares pre-norm and post-norm representations
+- Tests multiple perturbation scales (powers of 10)
+- Provides detailed logit and probability analysis
+
+Use Case:
+---------
+Use this script to:
+- Verify that Llama models exhibit numerical instability
+- Understand the role of layer normalization in instability
+- Establish baseline instability measurements for further experiments
+- Demonstrate that small rounding errors can change predictions
+
+Dependencies:
+-------------
+- torch, transformers (HuggingFace)
+- Llama-3.1-8B-Instruct model
+- GPU with sufficient memory (uses bfloat16 for efficiency)
+
+Key Functions:
+--------------
+- load_llama_model(): Load Llama model and tokenizer
+- get_embeddings_logits_and_all_hidden(): Extract embeddings, logits, and hidden
+  states before/after normalization
+- perturb_embeddings_all(): Apply perturbation to all or specific tokens
+- test_perturbation_effects(): Run full perturbation test suite
+"""
+
 import torch
 import torch.nn.functional as F
 import pandas as pd

@@ -1,3 +1,57 @@
+"""
+GPT Model Instability Checker
+
+This script tests the numerical instability of GPT models by applying small
+perturbations to input embeddings and measuring the impact on output predictions.
+
+Purpose:
+--------
+Empirically measures how sensitive GPT model predictions are to small numerical
+perturbations in the embedding space, demonstrating the instability phenomenon
+that motivates this research project.
+
+
+Relationship:
+-------------
+Both instability check scripts (GPT and Llama) use similar methodology:
+1. Load model and extract embeddings
+2. Apply controlled perturbations to embeddings
+3. Measure changes in output logits and predictions
+4. Quantify instability across different perturbation magnitudes
+
+Key Differences from Llama version:
+- Uses GPT-OSS model instead of Llama
+- CPU-only execution to avoid OOM
+- Perturbs ALL tokens in sequence simultaneously
+- Simpler analysis without layer normalization handling
+
+Test Methodology:
+-----------------
+1. Extract input token embeddings
+2. Apply small Gaussian noise to all token embeddings
+3. Forward pass through model with perturbed embeddings
+4. Compare output logits and top predictions
+5. Measure magnitude of changes relative to perturbation size
+
+Use Case:
+---------
+Use this script to:
+- Verify that small embedding perturbations cause significant output changes
+- Demonstrate numerical instability in GPT models
+- Motivate the need for more rigorous Lipschitz constant analysis
+
+Dependencies:
+-------------
+- torch, transformers (HuggingFace)
+- openai/gpt-oss-20b model (large model, requires significant RAM/CPU)
+
+Key Functions:
+--------------
+- get_embeddings_and_logits(): Extract embeddings and output logits
+- perturb_embeddings_all(): Apply perturbation to all tokens
+- test_perturbation_effects(): Run full perturbation test with multiple magnitudes
+"""
+
 import torch
 import torch.nn.functional as F
 import pandas as pd

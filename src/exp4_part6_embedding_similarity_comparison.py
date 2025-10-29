@@ -1,4 +1,130 @@
+"""
+Experiment 4 Part 6: Input Embedding Comparison Between GPUs
+
+This script compares the input embeddings extracted by experiment4_part5 from
+different GPU runs, testing whether embedding matrices are loaded identically
+across hardware.
+
+Purpose:
+--------
+Verifies that input token embeddings are identical between GPUs by:
+1. Loading embeddings extracted on GPU 0 and GPU 1 (from part5)
+2. Comparing embeddings token-by-token (cosine similarity, L2 distance)
+3. Identifying any differences in embedding lookups
+4. Confirming that divergence is NOT due to embedding differences
+
+
+If embeddings match (expected):
+- Divergence must occur during forward pass
+- Focus investigation on matrix operations, attention, normalization
+
+If embeddings differ (unexpected):
+- Model loading issue
+- Embedding precision/rounding during weight loading
+- Needs investigation of model checkpoint handling
+
+Methodology:
+------------
+1. Load embedding files from both GPU runs (from part5)
+2. Load metadata (tokens, prompts, indices)
+3. For each question:
+   a. Compare embeddings token-by-token
+   b. Compute cosine similarity (should be 1.0)
+   c. Compute L2 distance (should be 0.0)
+   d. Identify ANY tokens where embeddings differ
+   e. Plot similarity trends
+4. Generate summary report
+
+Comparison Metrics:
+-------------------
+For each token position:
+- Cosine similarity: 1 - cosine_distance(emb1, emb2)
+  * Perfect match: 1.0
+  * Different: < 0.999999
+- L2 distance: ||emb1 - emb2||
+  * Perfect match: 0.0
+  * Different: > 1e-6
+
+Analysis:
+---------
+Reports:
+- Number of tokens compared
+- Number of tokens with ANY difference (threshold > 0)
+- Tokens with significant differences (threshold > 1e-6)
+- Statistics: mean/max cosine similarity and L2 distance
+- List of changed tokens with their metrics
+
+Use Case:
+---------
+Use this script to:
+- Verify embedding matrices are loaded identically on both GPUs
+- Rule out embedding differences as divergence source
+- Confirm that computational differences cause divergence
+- Validate model checkpoint loading consistency
+
+Expected Results:
+-----------------
+TYPICAL CASE (embeddings identical):
+- All cosine similarities = 1.0
+- All L2 distances = 0.0
+- No tokens with differences
+- Conclusion: Divergence caused by forward pass computations
+
+ATYPICAL CASE (embeddings differ):
+- Some cosine similarities < 1.0
+- Some L2 distances > 0
+- Specific tokens with embedding differences
+- Conclusion: Model loading or weight precision issue
+
+Dependencies:
+-------------
+- numpy, matplotlib, scipy
+- json, pathlib
+
+Key Functions:
+--------------
+- load_embeddings(): Load .npy embedding files
+- load_metadata(): Load token/prompt information
+- compare_embeddings_simple(): Main comparison logic
+  * Token-by-token comparison
+  * Cosine similarity and L2 distance
+  * Identify changed tokens
+- Plot generation: Visualize similarity trends
+
+Output:
+-------
+- Console report:
+  * Number of tokens compared
+  * Number of changed tokens
+  * Detailed metrics for changed tokens
+- Plots:
+  * Cosine similarity across token positions
+  * L2 distance across token positions
+- Summary: Whether embeddings are identical or differ
+
+Workflow:
+---------
+1. Run experiment4_GPU_comaprison.py on GPU 0 and GPU 1
+2. Run experiment4_part2 to identify divergences
+3. Run experiment4_part5 on GPU 0 → extract embeddings
+4. Run experiment4_part5 on GPU 1 → extract embeddings
+5. Run THIS script to compare the two embedding sets
+
+Note:
+-----
+This analysis COMPLETES the experiment4 series by definitively establishing
+whether divergence originates from:
+1. Embedding differences (if this finds differences) - RARE
+2. Computational differences (if embeddings identical) - EXPECTED
+
+Most likely outcome: Embeddings identical, confirming that GPU-specific
+numerical behavior occurs during forward pass computations, not during
+embedding lookups.
+"""
+
 import numpy as np
+import os
+from datetime import datetime
 from pathlib import Path
 from scipy.spatial.distance import cosine, euclidean
 import json
@@ -272,23 +398,38 @@ def print_summary(result: Dict):
 
 def main():
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='Simple embedding comparison with plots')
     parser.add_argument('folder1', type=str, help='First embeddings folder')
     parser.add_argument('folder2', type=str, help='Second embeddings folder')
-    parser.add_argument('--output', type=str, default='simple_comparison.json',
-                       help='Output JSON file')
-    parser.add_argument('--plot-dir', type=str, default='comparison_plots',
-                       help='Directory to save plots')
-    
+    parser.add_argument('--output', type=str, default=None,
+                       help='Output JSON file (default: timestamped in ../results/)')
+    parser.add_argument('--plot-dir', type=str, default=None,
+                       help='Directory to save plots (default: timestamped in ../results/)')
+
     args = parser.parse_args()
-    
+
+    # Create timestamped experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp4_part6_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+
+    # Set output paths
+    if args.output is None:
+        output_file = os.path.join(exp_dir, 'simple_comparison.json')
+    else:
+        output_file = os.path.join(exp_dir, args.output)
+
+    if args.plot_dir is None:
+        plot_dir = Path(os.path.join(exp_dir, 'comparison_plots'))
+    else:
+        plot_dir = Path(os.path.join(exp_dir, args.plot_dir))
+
     folder1 = Path(args.folder1)
     folder2 = Path(args.folder2)
-    plot_dir = Path(args.plot_dir)
-    
+
     # Create plot directory
-    plot_dir.mkdir(exist_ok=True)
+    plot_dir.mkdir(exist_ok=True, parents=True)
     
     print("="*80)
     print("SIMPLE EMBEDDING COMPARISON WITH PLOTS")
@@ -342,11 +483,11 @@ def main():
         r_copy.pop('all_l2_distances', None)
         results_to_save.append(r_copy)
     
-    with open(args.output, 'w') as f:
+    with open(output_file, 'w') as f:
         json.dump(results_to_save, f, indent=2)
-    
+
     print(f"\n{'='*80}")
-    print(f"Results saved to: {args.output}")
+    print(f"Results saved to: {output_file}")
     print(f"Plots saved to: {plot_dir}/")
     print(f"Total plots generated: {len(all_results)}")
     print(f"{'='*80}\n")

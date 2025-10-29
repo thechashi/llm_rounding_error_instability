@@ -1,9 +1,92 @@
+"""
+Experiment 1: Layer-wise Behavior Comparison via Singular Vector Analysis
+
+This experiment analyzes how different layers of the Llama model respond to
+perturbations along singular vector directions identified from the full model's
+Jacobian SVD.
+
+Purpose:
+--------
+Compares layer-by-layer hidden state behavior when perturbing inputs along the
+same singular vector directions (computed from the full model's Jacobian). This
+reveals:
+1. How instability propagates through layers
+2. Which layers amplify or dampen perturbations
+3. Statistical properties of singular vector components
+
+
+Relationship:
+-------------
+This is the FIRST major experiment in the series, establishing the layer-wise
+analysis framework:
+1. Computes full-model Jacobian SVD (builds on `archive_lipschitz_constant_computation.py`)
+2. Identifies key singular directions (high vs low singular values)
+3. Tests perturbations along these directions at EACH layer
+4. Compares layer-by-layer responses
+
+Key difference from experiment5:
+- experiment1: Uses full-model SVD, tests same directions across all layers
+- experiment5: Computes separate Jacobian/SVD for each layer, tests layer-
+  specific directions
+
+Methodology:
+------------
+1. Load Llama model in float32
+2. Compute Jacobian SVD for full model (last token embedding → last hidden state)
+3. Extract singular vectors (right singular vectors from Vt)
+4. For each singular vector:
+   a. Perturb input along that direction
+   b. Extract hidden states from ALL layers
+   c. Compute statistics (mean, std, norm, etc.)
+5. Compare behavior across layers and singular vectors
+6. Generate visualization plots
+
+Analysis:
+---------
+Computes comprehensive statistics for each singular vector:
+- Basic properties: L2 norm, dimension
+- Descriptive stats: mean, std, min, max, range
+- Distribution: skewness, kurtosis, quartiles
+- Sparsity: zero count, near-zero count
+- Magnitude distribution: percentiles
+
+Use Case:
+---------
+Use this experiment to:
+- Understand layer-wise instability propagation
+- Identify which layers are most sensitive to perturbations
+- Compare behavior along different singular directions
+- Establish baseline for more sophisticated layer analysis
+
+Dependencies:
+-------------
+- torch, transformers (HuggingFace)
+- numpy, matplotlib, seaborn, scipy
+- Llama-3.1-8B-Instruct model (float32)
+
+Key Functions:
+--------------
+- load_model(): Load model in float32
+- compute_jacobian_svd(): Compute Jacobian and SVD for full model
+- get_all_layer_hidden_states(): Extract hidden states from all layers
+- print_singular_vector_stats(): Comprehensive statistical analysis
+
+Output:
+-------
+- Timestamped results directory (results/exp1_YYYY-MM-DD_HH-MM-SS/)
+- Layer-wise hidden state statistics
+- Singular vector analysis
+- Visualization plots
+"""
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import seaborn as sns
 from scipy import stats
+import os
+from datetime import datetime
 
 def load_model(model_path="/home/chashi/Desktop/Research/My Projects/models/Llama-3.1-8B-Instruct"):
     tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -244,21 +327,21 @@ def create_heatmap(rep1_layers, rep2_layers, e1, e2, singular_idx, save_prefix="
     print(f"Saved heatmap: {save_prefix}_e1_{e1:.2e}_e2_{e2:.2e}_sv{singular_idx}.pdf")
     plt.show()
 
-def compare_perturbations(e1, e2, step_size, jumps, singular_idx, text="The capital of France is", 
+def compare_perturbations(e1, e2, step_size, jumps, singular_idx, text="The capital of France is",
                          threshold=1e-6, save_prefix="comparison"):
     """
     Main function to compare two perturbations
-    
+
     Args:
         e1: First epsilon value
         e2: Second epsilon value
         singular_idx: Index of singular vector to use (0 for largest singular value)
         text: Input text
         threshold: Threshold for considering a value as "changed"
-        save_prefix: Prefix for saved files
+        save_prefix: Prefix for saved files (should include exp_dir path)
     """
-    print("="*80)
 
+    print("="*80)
     print(f"  Singular vector index = {singular_idx}")
     print(f"  Input text: '{text}'")
     print("="*80)
@@ -285,6 +368,26 @@ def compare_perturbations(e1, e2, step_size, jumps, singular_idx, text="The capi
     for i in range(min(5, len(S))):
         print(f"  σ_{i} = {S[i].item():.6f}")
     
+    # Save top 5 singular vectors - TRANSPOSED
+    print("\n[4/6] Saving top 5 singular vectors...")
+    # Vt has shape (embedding_dim, embedding_dim) or (num_sv, embedding_dim)
+    # Vt[:5, :] gives (5, embedding_dim)
+    # We transpose to get (embedding_dim, 5) where each column is a singular vector
+    top_5_singular_vectors = Vt[:5, :].cpu().numpy().T  # Shape: (embedding_dim, 5)
+    top_5_singular_values = S[:5].cpu().numpy()  # Shape: (5,)
+    
+    # Save as .npy file
+    np.save(f'{save_prefix}_top5_singular_vectors.npy', top_5_singular_vectors)
+    np.save(f'{save_prefix}_top5_singular_values.npy', top_5_singular_values)
+    
+    print(f"Saved: {save_prefix}_top5_singular_vectors.npy")
+    print(f"  Shape: {top_5_singular_vectors.shape} (rows=dimensions, cols=singular vectors)")
+    print(f"  Column 0: 1st singular vector (σ={top_5_singular_values[0]:.6f})")
+    print(f"  Column 1: 2nd singular vector (σ={top_5_singular_values[1]:.6f})")
+    print(f"  Column 2: 3rd singular vector (σ={top_5_singular_values[2]:.6f})")
+    print(f"  Column 3: 4th singular vector (σ={top_5_singular_values[3]:.6f})")
+    print(f"  Column 4: 5th singular vector (σ={top_5_singular_values[4]:.6f})")
+    
     # Get the perturbation direction
     direction = Vt[singular_idx, :]
     print(f"\nUsing singular vector {singular_idx} with σ = {S[singular_idx].item():.6f}")
@@ -292,7 +395,7 @@ def compare_perturbations(e1, e2, step_size, jumps, singular_idx, text="The capi
     # Print singular vector statistics
     direction_np = direction.cpu().numpy()
     print_singular_vector_stats(direction_np, S[singular_idx].item(), singular_idx)
-    
+
     for jump in jumps: 
         e2 = e1 + step_size*jump 
         print("\n" + "="*80)
@@ -362,20 +465,24 @@ def compare_perturbations(e1, e2, step_size, jumps, singular_idx, text="The capi
 
 # Example usage
 if __name__ == "__main__":
+    # Create experiment directory with timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp1_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+
     jumps = [1, 10, 100, 1000, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12]
-    e1 = 1e-6 + 1815*2e-13 # 1e-6 + 1080*2.5e-14 # 
+    e1 = 1e-6 + 1815*2e-13 # 1e-6 + 1080*2.5e-14 #
     step_size = 3*2e-14
-    e2 = e1 + step_size # 1e-6 + 1090*2.5e-14 # 
+    e2 = e1 + step_size # 1e-6 + 1090*2.5e-14 #
     singular_idx = 0  # Use the first (largest) singular vector
-    
+
     results, rep1, rep2 = compare_perturbations(
-        e1=e1, 
-        e2=e2, 
+        e1=e1,
+        e2=e2,
         step_size=step_size,
         jumps = jumps,
         singular_idx=singular_idx,
         text="The capital of France is",
         threshold=0,
-        save_prefix="perturbation_comparison"
-
+        save_prefix=os.path.join(exp_dir, "experiment1_perturbation_comparison")
     )

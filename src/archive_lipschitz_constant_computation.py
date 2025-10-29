@@ -1,3 +1,85 @@
+"""
+Lipschitz Constant Computation for Llama Models
+
+This script rigorously computes the Lipschitz constant of the Llama model's
+transformation from input embeddings to final hidden states using Jacobian
+analysis and Singular Value Decomposition (SVD).
+
+Purpose:
+--------
+Quantifies the theoretical upper bound on how much output can change relative to
+input perturbations by:
+1. Computing the Jacobian matrix (∂h/∂x) where h = hidden state, x = embedding
+2. Performing SVD to find the largest singular value
+3. The largest singular value = Lipschitz constant = maximum amplification factor
+
+
+Relationship:
+-------------
+This file provides the FOUNDATIONAL METHODOLOGY for Lipschitz analysis used
+throughout the project:
+1. Jacobian computation via torch.autograd.functional.jacobian
+2. SVD-based singular value extraction
+3. Lipschitz constant = largest singular value
+
+archive_lipschitz_constant_computation.py and
+llama_model_lipschitz_computation_part2.py appear nearly identical, suggesting
+part2 may be a backup or variant. The key techniques developed here are
+foundational and reused in:
+- experiment2 series: Average Lipschitz analysis
+- experiment5: Layer-wise Lipschitz analysis
+- experiment6-7: Jacobian-based sensitivity analysis
+
+Theoretical Background:
+-----------------------
+The Lipschitz constant L quantifies the maximum rate of change:
+  ||f(x + Δx) - f(x)|| ≤ L * ||Δx||
+
+For neural networks, L = largest singular value of the Jacobian matrix.
+This provides a rigorous upper bound on how much small input perturbations
+can affect outputs.
+
+Test Methodology:
+-----------------
+1. Load Llama model in float32 (for numerical precision)
+2. Extract input embeddings for a test prompt
+3. Compute Jacobian: ∂(last hidden state)/∂(last token embedding)
+4. Perform SVD on Jacobian: J = U Σ Vᵀ
+5. Extract largest singular value σ_max from Σ
+6. σ_max = Lipschitz constant
+
+Use Case:
+---------
+Use this script to:
+- Compute theoretical upper bound on output sensitivity
+- Understand how perturbations propagate through the model
+- Validate that empirical instability (from instability_check.py) is bounded
+  by the Lipschitz constant
+- Establish baseline for more sophisticated experiments
+
+Dependencies:
+-------------
+- torch, transformers (HuggingFace)
+- numpy, pandas
+- Llama-3.1-8B-Instruct model
+- Uses float32 for numerical precision in Jacobian computation
+
+Key Functions:
+--------------
+- load_llama_model(): Load model in float32 precision
+- model_forward_last_hidden(): Forward pass for Jacobian computation
+- compute_jacobian(): Compute Jacobian matrix using torch.autograd
+- perform_svd(): SVD analysis to extract singular values
+- test_lipschitz_constant(): Full pipeline for Lipschitz constant computation
+
+Output:
+-------
+- Jacobian matrix shape and properties
+- Singular values (particularly σ_max)
+- Lipschitz constant = σ_max
+- Comparison to empirical perturbation effects
+"""
+
 import torch
 import torch.nn.functional as F
 import pandas as pd
@@ -177,7 +259,7 @@ def compute_lipschitz_along_direction(model, full_embeddings, last_token_idx, di
 # -----------------------------
 # Main analysis function
 # -----------------------------
-def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_powers=None):
+def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_powers=None, analyze_dims=None):
     """
     Analyze Lipschitz constants along top-k singular directions.
     
@@ -187,9 +269,13 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
         input_text: Input text
         top_k: Number of top singular directions to analyze (1-5)
         epsilon_powers: List of powers for epsilon values (e.g., [-1, -2, ..., -18] for 10^-1 to 10^-18)
+        analyze_dims: List of dimensions to analyze (e.g., [50, 100, 200, 500, 1000, 2000, 4000, 4096])
     """
     if epsilon_powers is None:
         epsilon_powers = list(range(-1, -19, -1))  # 10^-1 to 10^-18
+    
+    if analyze_dims is None:
+        analyze_dims = [50, 100, 200, 500, 1000, 2000, 4000, 4096]
     
     device = next(model.parameters()).device
     
@@ -218,13 +304,6 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
     print("="*80)
     U, S, Vt = perform_svd(jacobian)
     
-    # Analyze Lipschitz constants
-    print("\n" + "="*80)
-    print("COMPUTING LIPSCHITZ CONSTANTS")
-    print("="*80)
-    
-    results = []
-    
     # Store original prediction once (same for all directions/epsilons)
     with torch.no_grad():
         outputs_orig = model(inputs_embeds=full_embeddings, output_hidden_states=True)
@@ -235,6 +314,13 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
     
     print(f"Original prediction: '{orig_token}' (token_id={orig_token_id}, prob={orig_prob:.4f})")
     
+    # Analyze Lipschitz constants for top-k singular directions
+    print("\n" + "="*80)
+    print("COMPUTING LIPSCHITZ CONSTANTS FOR TOP-K SINGULAR DIRECTIONS")
+    print("="*80)
+    
+    results_topk = []
+    
     for k in range(1, top_k + 1):
         # Get k-th right singular vector (input direction)
         direction = Vt[k-1, :]  # Shape: [hidden_dim]
@@ -244,7 +330,7 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
         for power in epsilon_powers:
             epsilon = 10.0 ** power
             
-            lipschitz, numerator, orig_tok_id, pert_tok_id, orig_p, pert_p, logit_diff, logits_orig, logits_pert = compute_lipschitz_along_direction(
+            lipschitz, numerator, orig_tok_id, pert_tok_id, orig_p, pert_p, logit_diff, logits_orig_val, logits_pert_val = compute_lipschitz_along_direction(
                 model, full_embeddings, last_token_idx, direction, epsilon
             )
             
@@ -254,11 +340,12 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
             token_changed = (orig_tok_id != pert_tok_id)
             
             # Get the logit values for the predicted tokens
-            orig_logit_val = logits_orig[orig_tok_id].item()
-            pert_logit_val = logits_pert[pert_tok_id].item()
+            orig_logit_val = logits_orig_val[orig_tok_id].item()
+            pert_logit_val = logits_pert_val[pert_tok_id].item()
             
-            results.append({
-                'singular_direction': k,
+            results_topk.append({
+                'analysis_type': 'top_k_singular',
+                'dimension': k,
                 'singular_value': S[k-1].item(),
                 'epsilon_power': power,
                 'epsilon': epsilon,
@@ -282,7 +369,69 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
             else:
                 print(f"  ε=10^{power:3d} ({epsilon:.2e}): Lipschitz={lipschitz:.6f}, ||Δf||={numerator:.6e}, logit: {orig_logit_val:.4f}→{pert_logit_val:.4f}, ||Δlogits||={logit_diff:.6e} | '{orig_token_str}' (p={orig_p:.4f}→{pert_p:.4f})")
     
-    return pd.DataFrame(results), jacobian, U, S, Vt
+    # Analyze Lipschitz constants for specific dimensions
+    print("\n" + "="*80)
+    print("COMPUTING LIPSCHITZ CONSTANTS FOR SPECIFIC DIMENSIONS")
+    print("="*80)
+    
+    results_dims = []
+    
+    for dim_idx in analyze_dims:
+        if dim_idx > len(S):
+            print(f"\nSkipping dimension {dim_idx} (exceeds available singular values: {len(S)})")
+            continue
+            
+        # Get the direction for this dimension
+        direction = Vt[dim_idx-1, :]  # -1 because we're 0-indexed
+        
+        print(f"\n--- Dimension {dim_idx} (Singular Value: {S[dim_idx-1].item():.6f}) ---")
+        
+        for power in epsilon_powers:
+            epsilon = 10.0 ** power
+            
+            lipschitz, numerator, orig_tok_id, pert_tok_id, orig_p, pert_p, logit_diff, logits_orig_val, logits_pert_val = compute_lipschitz_along_direction(
+                model, full_embeddings, last_token_idx, direction, epsilon
+            )
+            
+            # Decode tokens
+            orig_token_str = tokenizer.decode([orig_tok_id])
+            pert_token_str = tokenizer.decode([pert_tok_id])
+            token_changed = (orig_tok_id != pert_tok_id)
+            
+            # Get the logit values for the predicted tokens
+            orig_logit_val = logits_orig_val[orig_tok_id].item()
+            pert_logit_val = logits_pert_val[pert_tok_id].item()
+            
+            results_dims.append({
+                'analysis_type': 'specific_dimension',
+                'dimension': dim_idx,
+                'singular_value': S[dim_idx-1].item(),
+                'epsilon_power': power,
+                'epsilon': epsilon,
+                'lipschitz_constant': lipschitz,
+                'output_diff_norm': numerator,
+                'logit_diff': logit_diff,
+                'orig_token_id': orig_tok_id,
+                'orig_token': orig_token_str,
+                'orig_prob': orig_p,
+                'orig_logit': orig_logit_val,
+                'pert_token_id': pert_tok_id,
+                'pert_token': pert_token_str,
+                'pert_prob': pert_p,
+                'pert_logit': pert_logit_val,
+                'token_changed': token_changed
+            })
+            
+            # Print with token information
+            if token_changed:
+                print(f"  ε=10^{power:3d} ({epsilon:.2e}): Lipschitz={lipschitz:.6f}, ||Δf||={numerator:.6e}, logit: {orig_logit_val:.4f}→{pert_logit_val:.4f}, ||Δlogits||={logit_diff:.6e} | '{orig_token_str}' (p={orig_p:.4f}) → '{pert_token_str}' (p={pert_p:.4f}) ✓")
+            else:
+                print(f"  ε=10^{power:3d} ({epsilon:.2e}): Lipschitz={lipschitz:.6f}, ||Δf||={numerator:.6e}, logit: {orig_logit_val:.4f}→{pert_logit_val:.4f}, ||Δlogits||={logit_diff:.6e} | '{orig_token_str}' (p={orig_p:.4f}→{pert_p:.4f})")
+    
+    # Combine all results
+    all_results = results_topk + results_dims
+    
+    return pd.DataFrame(all_results), jacobian, U, S, Vt
 
 # -----------------------------
 # Run analysis
@@ -308,7 +457,8 @@ if __name__ == "__main__":
         results_df, jacobian, U, S, Vt = analyze_lipschitz_constants(
             model, tokenizer, input_text, 
             top_k=5,
-            epsilon_powers=list(range(-1, -19, -1))
+            epsilon_powers=list(range(-1, -19, -1)),
+            analyze_dims=[50, 100, 200, 500, 1000, 2000, 4000, 4096]
         )
         
         all_results[f"test_case_{i+1}"] = {
@@ -320,7 +470,7 @@ if __name__ == "__main__":
         }
         
         # Save results
-        filename = f"lipschitz_analysis_test_{i+1}.csv"
+        filename = f"lipschitz_analysis_test_{i+1}_complete.csv"
         results_df.to_csv(filename, index=False)
         print(f"\nSaved results to {filename}")
     
@@ -334,11 +484,26 @@ if __name__ == "__main__":
         print(f"\n{test_name}:")
         print(f"  Top 5 singular values: {data['S'][:5].cpu().numpy()}")
         
-        # Group by direction and show trend across epsilon
-        for k in range(1, 6):
-            subset = df[df['singular_direction'] == k]
-            print(f"\n  Direction {k} (σ={data['S'][k-1].item():.4f}):")
-            print(f"    Lipschitz range: [{subset['lipschitz_constant'].min():.6f}, {subset['lipschitz_constant'].max():.6f}]")
-            print(f"    Mean Lipschitz: {subset['lipschitz_constant'].mean():.6f}")
+        # Summary for top-k analysis
+        topk_df = df[df['analysis_type'] == 'top_k_singular']
+        if len(topk_df) > 0:
+            print(f"\n  Top-K Singular Directions Analysis:")
+            for k in range(1, 6):
+                subset = topk_df[topk_df['dimension'] == k]
+                if len(subset) > 0:
+                    print(f"    Direction {k} (σ={data['S'][k-1].item():.4f}):")
+                    print(f"      Lipschitz range: [{subset['lipschitz_constant'].min():.6f}, {subset['lipschitz_constant'].max():.6f}]")
+                    print(f"      Mean Lipschitz: {subset['lipschitz_constant'].mean():.6f}")
+        
+        # Summary for specific dimensions analysis
+        dims_df = df[df['analysis_type'] == 'specific_dimension']
+        if len(dims_df) > 0:
+            print(f"\n  Specific Dimensions Analysis:")
+            for dim in [50, 100, 200, 500, 1000, 2000, 4000, 4096]:
+                subset = dims_df[dims_df['dimension'] == dim]
+                if len(subset) > 0:
+                    print(f"    Dimension {dim} (σ={subset['singular_value'].iloc[0]:.6f}):")
+                    print(f"      Lipschitz range: [{subset['lipschitz_constant'].min():.6f}, {subset['lipschitz_constant'].max():.6f}]")
+                    print(f"      Mean Lipschitz: {subset['lipschitz_constant'].mean():.6f}")
     
     print("\nDone!")

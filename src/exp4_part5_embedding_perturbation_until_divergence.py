@@ -1,5 +1,98 @@
+"""
+Experiment 4 Part 5: Input Embedding Analysis Until Divergence
+
+This script analyzes the INPUT EMBEDDINGS (not hidden representations) for tokens
+leading up to divergence points, testing if the embeddings themselves differ
+between GPU runs or if differences only emerge during forward propagation.
+
+Purpose:
+--------
+Distinguishes between two sources of GPU-specific differences:
+1. EMBEDDING DIFFERENCES: Do input token embeddings differ between GPUs?
+2. COMPUTATIONAL DIFFERENCES: Do identical embeddings produce different hidden
+   states due to different forward pass computations?
+
+This helps determine whether divergence is due to:
+- Embedding matrix storage/retrieval differences (unlikely but possible)
+- Forward pass computation differences (more likely - matmul, attention, etc.)
+
+
+This helps separate:
+- Model weight loading issues (if embeddings differ)
+- Computation issues (if embeddings identical but outputs differ)
+
+Methodology:
+------------
+1. Load Llama model on current GPU
+2. For each question from part2 that showed divergence:
+   a. Load metadata to get prompt and generated tokens
+   b. Reconstruct input sequence up to divergence point
+   c. Convert tokens to embeddings using model's embedding layer
+   d. Save embeddings to disk
+3. Run this script on GPU 0 and GPU 1 separately
+4. Use part6 to compare the saved embeddings
+
+Test Design:
+------------
+1. Both GPUs load the same model checkpoint
+2. Extract embeddings for SAME token IDs
+3. Compare resulting embedding vectors
+4. Expected: Embeddings should be IDENTICAL (deterministic lookup)
+5. If different: Model loading issue or embedding matrix differences
+6. If identical: Divergence caused by forward pass computations
+
+Use Case:
+---------
+Use this script to:
+- Verify that embedding matrices are loaded identically on different GPUs
+- Rule out embedding differences as source of divergence
+- Focus investigation on computational differences if embeddings match
+- Identify model loading issues if embeddings differ
+
+Dependencies:
+-------------
+- torch, transformers (HuggingFace)
+- numpy, json, pathlib
+
+Key Functions:
+--------------
+- load_model(): Load model on current GPU
+- load_question_metadata(): Get prompt and generated tokens
+- extract_and_save_embeddings(): Main extraction logic
+  * Tokenizes input sequence
+  * Extracts embeddings from embedding layer
+  * Saves to disk for comparison
+
+Output:
+-------
+- Directory: results/exp4_embeddings_gpu{N}_TIMESTAMP/
+- Per-question files: question_{id}_embeddings.npy
+- Metadata: embeddings_metadata.json (prompts, tokens, indices)
+
+Workflow:
+---------
+1. Run experiment4_GPU_comaprison.py on GPU 0 and GPU 1
+2. Run experiment4_part2 to identify divergences
+3. Run THIS script on GPU 0 → saves embeddings
+4. Run THIS script on GPU 1 → saves embeddings
+5. Run part6 to compare the two embedding sets
+
+Note:
+-----
+If embeddings are IDENTICAL between GPUs (expected):
+- Divergence must be caused by forward pass computations
+- Focus on matmul, attention, normalization operations
+
+If embeddings DIFFER between GPUs (unexpected):
+- Model loading or weight precision issues
+- Embedding matrix storage differences
+- Needs further investigation of model checkpoint loading
+"""
+
 import torch
 import numpy as np
+import os
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -230,7 +323,7 @@ def save_embeddings_dataset(
 
 def main():
     import argparse
-    
+
     parser = argparse.ArgumentParser(
         description='Extract input embeddings till divergence index + 1 for all questions'
     )
@@ -253,8 +346,8 @@ def main():
     parser.add_argument(
         '--output-dir',
         type=str,
-        default='embeddings_till_divergence',
-        help='Output directory for embeddings'
+        default=None,
+        help='Output directory for embeddings (default: timestamped in ../results/)'
     )
     parser.add_argument(
         '--source-type',
@@ -263,12 +356,22 @@ def main():
         default='comparison',
         help='Type of divergence source: "comparison" (full comparison JSON) or "dict" (simple dict)'
     )
-    
+
     args = parser.parse_args()
-    
+
+    # Create timestamped experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp4_part5_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+
+    # Set output directory
+    if args.output_dir is None:
+        output_dir = Path(exp_dir)
+    else:
+        output_dir = Path(os.path.join(exp_dir, args.output_dir))
+
     results_folder = Path(args.results_folder)
     divergence_source = Path(args.divergence_source)
-    output_dir = Path(args.output_dir)
     
     # Validate inputs
     if not results_folder.exists():

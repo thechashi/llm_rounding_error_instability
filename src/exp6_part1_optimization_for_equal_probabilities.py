@@ -1,9 +1,27 @@
+"""
+Experiment 6 Part 1: Optimization for Equal Probabilities
+
+This script optimizes input embeddings to make the top-2 predicted token probabilities equal.
+Unlike the geometric approach, this directly minimizes the squared difference between the
+top-2 logits: (L1 - L2)^2.
+
+The optimization process:
+1. Tokenizes the input text and identifies the top-2 predicted tokens
+2. Freezes all model parameters (only embeddings are optimized)
+3. Uses Adam optimizer with gradient descent on the last token's embedding
+4. Minimizes the loss: (logit_1 - logit_2)^2
+5. Applies gradient clipping for numerical stability
+
+The optimized embeddings are saved for further analysis in subsequent experiments.
+"""
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import warnings
 import numpy as np
+import os
+from datetime import datetime
 warnings.filterwarnings('ignore')
 
 def load_model(model_path):
@@ -128,10 +146,16 @@ def optimize_for_equal_top2_probabilities(
 
 if __name__ == "__main__":
     MODEL_PATH = "/home/chashi/Desktop/Research/My Projects/models/Llama-3.1-8B-Instruct"
-    
+
+    # Create timestamped experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp6_part1_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+    print(f"Saving results to: {exp_dir}\n")
+
     # Clear cache before starting
     torch.cuda.empty_cache()
-    
+
     model, tokenizer = load_model(MODEL_PATH)
     
     input_text = "The capital of France is"
@@ -143,15 +167,15 @@ if __name__ == "__main__":
     )
     
     # Save results
-    np.save("optimized_last_token_embedding.npy", opt_embedding.float().numpy())
-    np.save("optimized_last_hidden.npy", last_hidden.float().numpy())
+    np.save(os.path.join(exp_dir, "optimized_last_token_embedding.npy"), opt_embedding.float().numpy())
+    np.save(os.path.join(exp_dir, "optimized_last_hidden.npy"), last_hidden.float().numpy())
     torch.save({
         'full_embeddings': full_embeddings.detach().cpu(),
         'last_token_idx': last_idx,
         'input_text': input_text
-    }, "optimized_state.pt")
-    
+    }, os.path.join(exp_dir, "optimized_state.pt"))
+
     print("\nSaved:")
-    print("  - optimized_last_token_embedding.npy")
-    print("  - optimized_last_hidden.npy")
-    print("  - optimized_state.pt")
+    print(f"  - {os.path.join(exp_dir, 'optimized_last_token_embedding.npy')}")
+    print(f"  - {os.path.join(exp_dir, 'optimized_last_hidden.npy')}")
+    print(f"  - {os.path.join(exp_dir, 'optimized_state.pt')}")

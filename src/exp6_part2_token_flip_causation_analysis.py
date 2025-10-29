@@ -1,3 +1,19 @@
+"""
+Experiment 6 Part 2: Token Flip Causation Analysis
+
+This script analyzes what causes token prediction flips by perturbing embeddings along
+specific directions derived from Jacobian SVD analysis.
+
+The analysis workflow:
+1. Loads the optimized embeddings from exp6_part1 (where top-2 logits are equal)
+2. Computes the Jacobian matrix: J[i,j] = ∂h_i/∂x_j (hidden state w.r.t. input embedding)
+3. Performs SVD on the Jacobian to identify principal directions of sensitivity
+4. Tests token prediction stability by perturbing along the top-5 singular vector directions
+5. Records at what perturbation magnitude (epsilon) the predicted token flips
+
+This helps understand which embedding directions are most sensitive and likely to cause
+prediction changes due to numerical precision issues.
+"""
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -5,6 +21,8 @@ import pandas as pd
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from functools import partial
 import warnings
+import os
+from datetime import datetime
 warnings.filterwarnings('ignore')
 from tqdm import tqdm 
 
@@ -121,10 +139,16 @@ def test_token_flip_along_direction(model, tokenizer, full_embeddings, last_toke
 
 if __name__ == "__main__":
     MODEL_PATH = "/home/chashi/Desktop/Research/My Projects/models/Llama-3.1-8B-Instruct"
-    
+
+    # Create timestamped experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp6_part2_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+    print(f"Saving results to: {exp_dir}\n")
+
     # Clear cache
     torch.cuda.empty_cache()
-    
+
     # Load model
     model, tokenizer = load_model(MODEL_PATH)
     device = next(model.parameters()).device
@@ -178,8 +202,9 @@ if __name__ == "__main__":
         
         # Save results for this direction
         df = pd.DataFrame(results)
-        df.to_csv(f"token_flip_direction_{k}_geom_float32.csv", index=False)
-        print(f"Saved results to token_flip_direction_{k}_geom_float32.csv")
+        csv_filename = f"token_flip_direction_{k}_geom_float32.csv"
+        df.to_csv(os.path.join(exp_dir, csv_filename), index=False)
+        print(f"Saved results to {os.path.join(exp_dir, csv_filename)}")
         
         # Summary
         flips = df[df['token_changed'] == True]

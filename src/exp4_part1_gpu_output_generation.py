@@ -1,7 +1,107 @@
+"""
+Experiment 4: GPU Hardware Comparison for Numerical Instability
+
+This experiment tests whether different GPU hardware produces different outputs
+for the SAME model and input, revealing hardware-specific numerical differences
+due to floating-point arithmetic implementation variations.
+
+Purpose:
+--------
+Empirically tests the hypothesis that identical models running on different GPUs
+can produce different outputs due to:
+1. Hardware-specific floating-point implementations
+2. Different rounding modes in GPU arithmetic units
+3. Variations in matrix multiplication algorithms (cuBLAS implementations)
+4. Compiler optimizations that affect numerical precision
+
+
+Relationship:
+-------------
+This is the DATA GENERATION script for experiment4 series:
+1. experiment4_GPU_comaprison.py (this file): Generates outputs on different GPUs
+2. experiment4_part2: Loads and compares the generated outputs
+3. experiment4_part3: Identifies divergence points in generation
+4. experiment4_part4: Creates visualization plots
+5. experiment4_part5-6: Analyzes input embeddings around divergence
+
+Workflow:
+---------
+1. Run THIS script on GPU 0 → saves results to exp4_gpu0_TIMESTAMP/
+2. Run THIS script on GPU 1 → saves results to exp4_gpu1_TIMESTAMP/
+3. Run part2 to compare outputs → identifies divergences
+4. Run part3-6 for detailed analysis
+
+The comparison reveals whether hardware affects numerical stability, answering:
+- Do different GPUs produce identical outputs? (They should, but often don't)
+- Where do outputs first diverge?
+- How significant are the hardware-induced differences?
+
+Methodology:
+------------
+1. Set seeds for reproducibility (torch, numpy, CUDA)
+2. Load Llama model on specified GPU with bfloat16
+3. For each test question:
+   a. Generate token-by-token with greedy decoding
+   b. Save hidden representations at each step
+   c. Save top-10 logits and probabilities
+   d. Save generated tokens and top-5 predictions
+   e. Save metadata (prompt, full generation, etc.)
+4. Save all data to GPU-specific directory
+
+Test Questions:
+---------------
+Uses diverse prompts to test different generation scenarios:
+- Factual questions (e.g., "What is the capital of France?")
+- Counterfactual questions (e.g., "What is the capital of Moon?")
+- Different topics and complexity levels
+
+Use Case:
+---------
+Use this experiment to:
+- Test if GPU hardware affects model outputs
+- Understand hardware-specific numerical behavior
+- Identify if instability is partly hardware-dependent
+- Establish whether results are reproducible across GPUs
+
+Key Differences from experiment3:
+- experiment3: Tests SOFTWARE precision (float32 vs bfloat16 vs float16)
+- experiment4: Tests HARDWARE variation (GPU 0 vs GPU 1, same software precision)
+
+Dependencies:
+-------------
+- torch, transformers (HuggingFace)
+- numpy, json, pathlib
+- Llama-3.1-8B-Instruct model
+- Multiple GPUs for comparison
+
+Key Functions:
+--------------
+- set_seed(): Ensure reproducibility (critical for GPU comparison)
+- load_model(): Load model on specified GPU with bfloat16
+- generate_and_save_data(): Token-by-token generation with full logging
+- (main): Run experiments and save GPU-specific results
+
+Output:
+-------
+- Timestamped results directory: results/exp4_gpu{N}_YYYY-MM-DD_HH-MM-SS/
+- Per-question subdirectories with:
+  * representations.npy: Hidden states at each generation step
+  * top_10_logits.npy: Top-10 logit values
+  * top_10_probs.npy: Top-10 probabilities
+  * words.json: Generated tokens and top-5 predictions
+  * metadata.json: Prompt, full generation, GPU info
+
+Note:
+-----
+CRITICAL: Use same seed, model, and prompts across GPUs for valid comparison.
+Any differences in outputs indicate hardware-specific numerical behavior.
+"""
+
 import torch
 import torch.nn.functional as F
 import numpy as np
 import os
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Dict, List, Any
@@ -198,7 +298,13 @@ def save_generation_data(data: Dict, output_dir: Path, question_id: int):
 def main():
     # Configuration
     MODEL_PATH = "/home/chashi/Desktop/Research/My Projects/models/Llama-3.1-8B-Instruct"
-    OUTPUT_DIR = Path("./exp4_generation_results")
+
+    # Create timestamped experiment directory
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = os.path.join("../results", f"exp4_{timestamp}")
+    os.makedirs(exp_dir, exist_ok=True)
+    OUTPUT_DIR = Path(exp_dir)
+
     NUM_TOKENS = 1000
     SEED = 42
     
@@ -232,10 +338,7 @@ def main():
     print("LOADING MODEL")
     print("="*80)
     model, tokenizer = load_model(MODEL_PATH)
-    
-    # Create output directory
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    
+
     # Process each question
     for i, question in enumerate(questions, 1):
         print("\n" + "="*80)

@@ -1,3 +1,34 @@
+"""
+PDF Word-by-Word Prediction Analysis
+
+This script analyzes how well a language model predicts each word in a PDF document
+by using the preceding context. It performs sequential next-token prediction and
+compares the model's top predictions with the actual text.
+
+The analysis workflow:
+1. Extracts text from a PDF file using PyMuPDF (fitz)
+2. Splits the extracted text into individual words
+3. For each word position:
+   - Uses all preceding words as context
+   - Generates model predictions for the next token
+   - Compares predictions with the actual next word using context-aware tokenization
+4. Computes comprehensive metrics:
+   - Logits and probabilities for top-2 predictions and the actual word
+   - Token ID matching to verify correct predictions
+   - Cosine similarities between unembedding vectors
+   - Cosine similarities between the last hidden state and unembedding vectors
+5. Saves results to CSV with checkpoints for long documents
+
+Key features:
+- Context-aware tokenization: Properly handles multi-token words by comparing token IDs
+- Hidden state analysis: Extracts the last hidden state (pseudo token) for similarity computation
+- Robust error handling and progress tracking
+- Summary statistics including accuracy, probability distributions, and similarity metrics
+
+This is useful for understanding model prediction behavior, analyzing which words are
+predictable from context, and studying the relationship between hidden states and
+vocabulary embeddings.
+"""
 import torch
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
