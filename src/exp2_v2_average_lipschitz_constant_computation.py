@@ -295,7 +295,7 @@ def compute_lipschitz_along_direction_with_noise(model, full_embeddings, last_to
     device = next(model.parameters()).device
     
     # Calculate noise scale: epsilon * (10^-2)
-    noise_scale = epsilon * (10 ** -2)
+    noise_scale = 1e-9 #epsilon * (10 ** -2)
     
     # Lists to store hidden states and logits for averaging
     rep1_hidden_states = []  # f(x0 + epsilon*si + rand_v*si)
@@ -691,7 +691,7 @@ if __name__ == "__main__":
     all_results = {}
     epsilon_powers = list(range(-7, -11, -1)) 
     analyze_dims = range(2)  # [50, 100, 200, 500, 1000, 2000, 4000, 4096]
-    n_noise_samples_list = [2000]  # List of sample sizes to test
+    n_noise_samples_list = [2, 5, 10, 100, 1000, 2000, 4000]  # List of sample sizes to test
     
     for i, input_text in enumerate(test_inputs):
         print("\n" + "="*80)
@@ -848,5 +848,5 @@ if __name__ == "__main__":
     print("\nDone!")
 
 '''
-nohup python3 src/experiment2_v2_avg_lipschitz.py  > exp2_avg_lipschitz_v2_2000_.txt 2>&1 &
+nohup python3 src/exp2_v2_average_lipschitz_constant_computation.py  > exp2_avg_lipschitz_v2_2_4000_1e-9_.txt 2>&1 &
 '''
