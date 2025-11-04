@@ -82,7 +82,7 @@ def load_model(model_path: str):
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         device_map="auto",
-        torch_dtype=torch.bfloat16,
+        torch_dtype=torch.float32,
         trust_remote_code=True,
         output_hidden_states=True,
         low_cpu_mem_usage=True
@@ -297,7 +297,7 @@ def generate_and_save_data(
 def main():
     MODEL_PATH = "/home/chashi/Desktop/Research/My Projects/models/Llama-3.1-8B-Instruct"
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    exp_dir = os.path.join("../results", f"exp8_part5_comprehensive_{timestamp}")
+    exp_dir = os.path.join("../results", f"exp8_part5_comprehensive_float32_{timestamp}")
     os.makedirs(exp_dir, exist_ok=True)
     OUTPUT_DIR = Path(exp_dir)
     NUM_TOKENS = 200
