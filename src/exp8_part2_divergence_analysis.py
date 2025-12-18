@@ -451,11 +451,11 @@ if __name__ == "__main__":
 """
 Example usage:
 
-python exp8_part2_comprehensive_divergence_analysis.py \
-    "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/A5000_exp8_part1_comprehensive_2025-11-02_12-49-05" \
-    "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/A6000_exp8_part1_comprehensive_2025-11-02_12-55-07" \
+python exp8_part2_divergence_analysis.py \
+    "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/A5000_exp8_part5_comprehensive_float32_2025-11-04_10-32-08" \
+    "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/A6000_exp8_part5_comprehensive_float32_2025-11-04_10-38-04" \
     --num_questions 10 \
-    --output_file exp8_part2_comprehensive_divergence_analysis.json \
+    --output_file ../results/exp8_part2_comprehensive_float32_divergence_analysis.json \
     --verbose
 
 Without verbose:

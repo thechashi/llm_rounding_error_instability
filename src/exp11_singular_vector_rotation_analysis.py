@@ -227,7 +227,7 @@ if __name__ == "__main__":
     # These values are taken from `exp1_layerwise_svd_perturbation_analysis.py`
     e1 = 1e-6 + 1815 * 2e-13
     step_size = 3 * 2e-14
-    jumps_to_test = [1, 10]
+    jumps_to_test = [1, 10, 20, 50, 100]
 
     # Run the analysis.
     # To run a full analysis (all 4096 rotations), set max_rotations=None.

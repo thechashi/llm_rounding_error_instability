@@ -1,43 +1,44 @@
-
 import torch
 import numpy as np
 import os
 import argparse
 
-def analyze_perturbation_effect(weight_path, device):
+def analyze_perturbation_effect(dim, device, weight_scale):
     """
-    Analyzes the effect of a small perturbation on the output of a matrix multiplication
-    for a range of epsilon values.
+    Analyzes the effect of a small perturbation on the output of a sequence of
+    matrix multiplications for a range of epsilon values.
 
     Args:
-        weight_path (str): Path to the .npy file containing the weight matrix.
+        dim (int): The dimension of the square matrices.
         device (str): The device to run the computations on.
+        weight_scale (float): Scaling factor for the randomly generated weight matrices.
     """
     print("=" * 80)
-    print("Experiment 10, Part 3: Perturbation Impact Analysis for a Range of Epsilons")
-    print(f"Loading weight matrix from: {weight_path}")
+    print("Experiment 10, Part 3: Perturbation Impact Analysis with 12 Sequential Matrices")
+    print(f"Matrix dimension: {dim}")
+    print(f"Weight scale: {weight_scale}")
     print(f"Running on device: {device}")
     print("=" * 80)
 
-    # 1. Load the weight matrix
-    if not os.path.exists(weight_path):
-        print(f"Error: Weight file not found at {weight_path}")
-        print("Please run 'exp9_part2_save_first_layer_weights.py' to generate the weight files.")
-        return
+    # 1. Create 12 random weight matrices
+    torch.manual_seed(0) # for reproducibility of matrices
+    weight_matrices = [
+        torch.randn(dim, dim, device=device, dtype=torch.float32) * weight_scale
+        for _ in range(12)
+    ]
+    print(f"Successfully created 12 random weight matrices with shape: ({dim}, {dim}) and scale {weight_scale}\n")
 
-    try:
-        weight_matrix = np.load(weight_path)
-        weight_matrix = torch.from_numpy(weight_matrix).to(device=device, dtype=torch.float32)
-        dim = weight_matrix.shape[1]
-        print(f"Successfully loaded weight matrix with shape: {weight_matrix.shape}\n")
-    except Exception as e:
-        print(f"Error loading weight matrix: {e}")
-        return
+    # For context, calculate the spectral norm of the combined weight matrix once
+    # The matrices are applied in order W_0, W_1, ..., W_11 to an input x.
+    # y = W_11 @ ... @ W_1 @ W_0 @ x.
+    # The combined matrix is M = W_11 @ ... @ W_0.
+    combined_matrix = torch.eye(dim, device=device, dtype=torch.float32)
+    for matrix in weight_matrices:
+        combined_matrix = torch.matmul(matrix, combined_matrix)
 
-    # For context, calculate the spectral norm of the weight matrix once
-    spectral_norm = torch.linalg.matrix_norm(weight_matrix, ord=2)
+    spectral_norm = torch.linalg.matrix_norm(combined_matrix, ord=2)
     print("--- Theoretical Maximum Amplification ---")
-    print(f"Spectral Norm of Weight Matrix: {spectral_norm.item():.6f}")
+    print(f"Spectral Norm of Combined Weight Matrix: {spectral_norm.item():.6f}")
     print("(This is the maximum possible amplification for any input vector)\n")
 
     # 2. Define the range of epsilons to test
@@ -58,7 +59,10 @@ def analyze_perturbation_effect(weight_path, device):
     print(f"  Min: {torch.min(input_vector).item():.6e}")
     print(f"  Max: {torch.max(input_vector).item():.6e}\n")
 
-    original_output = torch.matmul(weight_matrix, input_vector)
+    # Calculate original output by applying matrices sequentially
+    original_output = input_vector
+    for matrix in weight_matrices:
+        original_output = torch.matmul(matrix, original_output)
 
     # 4. Loop through each epsilon
     for epsilon in epsilons:
@@ -70,8 +74,10 @@ def analyze_perturbation_effect(weight_path, device):
         input_change = epsilon * perturbation_direction
         perturbed_input = input_vector + input_change
 
-        # Perform the matrix multiplication
-        perturbed_output = torch.matmul(weight_matrix, perturbed_input)
+        # Perform the matrix multiplications sequentially
+        perturbed_output = perturbed_input
+        for matrix in weight_matrices:
+            perturbed_output = torch.matmul(matrix, perturbed_output)
 
         # Calculate the change in output
         output_change = perturbed_output - original_output
@@ -105,14 +111,20 @@ def analyze_perturbation_effect(weight_path, device):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Analyze the effect of a small perturbation on a matrix multiplication for a range of epsilons.",
+        description="Analyze the effect of a small perturbation on a sequence of matrix multiplications for a range of epsilons.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
-        "--weight_path",
-        type=str,
-        default="first_layer_weights/layer0_self_attn_q_proj_weights.npy",
-        help="Path to the .npy file for the weight matrix."
+        "--dim",
+        type=int,
+        default=4096,
+        help="Dimension of the square weight matrices."
+    )
+    parser.add_argument(
+        "--weight_scale",
+        type=float,
+        default=0.01,
+        help="Scaling factor for the randomly generated weight matrices."
     )
     parser.add_argument(
         "--device",
@@ -124,26 +136,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     analyze_perturbation_effect(
-        weight_path=args.weight_path,
-        device=args.device
+        dim=args.dim,
+        device=args.device,
+        weight_scale=args.weight_scale
     )
-'''
-1. Create an Initial Vector: First, a random input_vector of dimension 4096 is generated.
-      This serves as our baseline "clean" input.
-   2. Define a Direction: A second random vector, perturbation_direction, is created. This
-      vector determines the direction in which we will apply the nudge.
-   3. Normalize the Direction: This direction vector is then normalized (divided by its own
-      length or L2 norm) to create a unit vector. This is a critical step that ensures the
-      vector has a length of exactly 1. By doing this, we separate the direction of the
-      perturbation from its magnitude.
-   4. Scale by Epsilon: The normalized direction vector is then multiplied by a very small
-      scalar value called epsilon (e.g., 1e-6). This creates the final perturbation vector,
-      input_change, which points in the chosen random direction and has a length exactly equal
-      to epsilon.
-   5. Apply the Perturbation: Finally, this small input_change vector is added to the original
-      input_vector to create the perturbed_input.
-
-  In short, we are nudging the original input vector by a tiny, precise amount (epsilon) in a
-  randomly chosen but consistent direction. This allows us to see how the system reacts to very
-  small, controlled changes.
-'''

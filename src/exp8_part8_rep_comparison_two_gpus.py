@@ -3,7 +3,7 @@ GPU Representation Direct Comparison
 
 For each question, compare representations between GPU1 and GPU2 at ALL stages.
 Computes: cosine similarity, L2 distance, number of changed values, percentage changed,
-and at what decimal precision they differ.
+and at what decimal precision they differ (extended to 1e-15).
 """
 
 import json
@@ -44,7 +44,7 @@ def count_changed_values(vec1: np.ndarray, vec2: np.ndarray, tolerance: float = 
 def analyze_decimal_precision(vec1: np.ndarray, vec2: np.ndarray) -> Dict:
     """
     Analyze at what decimal precision the values differ.
-    Returns dict with counts at different decimal places.
+    Returns dict with counts at different decimal places from 1e-1 to 1e-15.
     """
     vec1_flat = vec1.flatten()
     vec2_flat = vec2.flatten()
@@ -61,7 +61,7 @@ def analyze_decimal_precision(vec1: np.ndarray, vec2: np.ndarray) -> Dict:
         }
     
     # Categorize by decimal precision where difference appears
-    # e.g., diff >= 1e-1 means differs at 1st decimal place
+    # Extended from 1e-7 to 1e-15
     precision_counts = {
         'differs_at_1e-1': int(np.sum(nonzero_diff >= 1e-1)),    # 0.X
         'differs_at_1e-2': int(np.sum(nonzero_diff >= 1e-2)),    # 0.0X
@@ -70,7 +70,15 @@ def analyze_decimal_precision(vec1: np.ndarray, vec2: np.ndarray) -> Dict:
         'differs_at_1e-5': int(np.sum(nonzero_diff >= 1e-5)),    # 0.0000X
         'differs_at_1e-6': int(np.sum(nonzero_diff >= 1e-6)),    # 0.00000X
         'differs_at_1e-7': int(np.sum(nonzero_diff >= 1e-7)),    # 0.000000X
-        'differs_below_1e-7': int(np.sum(nonzero_diff < 1e-7)),  # Very small differences
+        'differs_at_1e-8': int(np.sum(nonzero_diff >= 1e-8)),    # 0.0000000X
+        'differs_at_1e-9': int(np.sum(nonzero_diff >= 1e-9)),    # 0.00000000X
+        'differs_at_1e-10': int(np.sum(nonzero_diff >= 1e-10)),  # 0.000000000X
+        'differs_at_1e-11': int(np.sum(nonzero_diff >= 1e-11)),  # 0.0000000000X
+        'differs_at_1e-12': int(np.sum(nonzero_diff >= 1e-12)),  # 0.00000000000X
+        'differs_at_1e-13': int(np.sum(nonzero_diff >= 1e-13)),  # 0.000000000000X
+        'differs_at_1e-14': int(np.sum(nonzero_diff >= 1e-14)),  # 0.0000000000000X
+        'differs_at_1e-15': int(np.sum(nonzero_diff >= 1e-15)),  # 0.00000000000000X
+        'differs_below_1e-15': int(np.sum(nonzero_diff < 1e-15)),  # Extremely small differences
     }
     
     precision_counts.update({
@@ -257,41 +265,30 @@ def print_summary(results: Dict):
         print(f"  {stage_name:<50} {pct:.2f}% ({num} values)")
 
 def print_decimal_analysis(results: Dict):
-    """Print analysis of decimal precision differences"""
+    """Print analysis of decimal precision differences (extended to 1e-15)"""
     
     print(f"\n{'DECIMAL PRECISION ANALYSIS':^80}")
     print(f"{'='*80}")
     
     # Aggregate across all stages
-    total_differs_1e1 = 0
-    total_differs_1e2 = 0
-    total_differs_1e3 = 0
-    total_differs_1e4 = 0
-    total_differs_1e5 = 0
-    total_differs_1e6 = 0
-    total_differs_1e7 = 0
-    total_differs_below = 0
+    precision_levels = ['1e-1', '1e-2', '1e-3', '1e-4', '1e-5', '1e-6', '1e-7', 
+                        '1e-8', '1e-9', '1e-10', '1e-11', '1e-12', '1e-13', 
+                        '1e-14', '1e-15']
+    
+    aggregated = {level: 0 for level in precision_levels}
+    aggregated['below_1e-15'] = 0
     
     for stage_data in results['stages'].values():
         dec_analysis = stage_data['decimal_precision_analysis']
-        total_differs_1e1 += dec_analysis.get('differs_at_1e-1', 0)
-        total_differs_1e2 += dec_analysis.get('differs_at_1e-2', 0)
-        total_differs_1e3 += dec_analysis.get('differs_at_1e-3', 0)
-        total_differs_1e4 += dec_analysis.get('differs_at_1e-4', 0)
-        total_differs_1e5 += dec_analysis.get('differs_at_1e-5', 0)
-        total_differs_1e6 += dec_analysis.get('differs_at_1e-6', 0)
-        total_differs_1e7 += dec_analysis.get('differs_at_1e-7', 0)
-        total_differs_below += dec_analysis.get('differs_below_1e-7', 0)
+        for level in precision_levels:
+            aggregated[level] += dec_analysis.get(f'differs_at_{level}', 0)
+        aggregated['below_1e-15'] += dec_analysis.get('differs_below_1e-15', 0)
     
     print("\nAggregated across all stages:")
-    print(f"  Differs at 1e-1 or larger: {total_differs_1e1:,} values")
-    print(f"  Differs at 1e-2 or larger: {total_differs_1e2:,} values")
-    print(f"  Differs at 1e-3 or larger: {total_differs_1e3:,} values")
-    print(f"  Differs at 1e-4 or larger: {total_differs_1e4:,} values")
-    print(f"  Differs at 1e-5 or larger: {total_differs_1e5:,} values")
-    print(f"  Differs at 1e-6 or larger: {total_differs_1e6:,} values")
-    print(f"  Differs at 1e-7 or larger: {total_differs_1e7:,} values")
-    print(f"  Differs below 1e-7:        {total_differs_below:,} values")
+    for level in precision_levels:
+        count = aggregated[level]
+        print(f"  Differs at {level} or larger: {count:,} values")
+    print(f"  Differs below 1e-15:        {aggregated['below_1e-15']:,} values")
 
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -396,7 +393,7 @@ def plot_results(results: Dict, output_prefix: str = "gpu_comparison"):
     # Create per-layer breakdown plot
     plot_per_layer_breakdown(results, output_prefix)
     
-    # Create decimal precision plot
+    # Create decimal precision plot (extended)
     plot_decimal_precision(results, output_prefix)
 
 def plot_per_layer_breakdown(results: Dict, output_prefix: str):
@@ -535,36 +532,41 @@ def plot_per_layer_breakdown(results: Dict, output_prefix: str):
 
 def plot_decimal_precision(results: Dict, output_prefix: str):
     """
-    Visualize the decimal precision analysis.
+    Visualize the decimal precision analysis (extended to 1e-15).
     """
     stages = results['stages']
     
     # Aggregate decimal precision data
     precision_levels = ['differs_at_1e-1', 'differs_at_1e-2', 'differs_at_1e-3', 
                        'differs_at_1e-4', 'differs_at_1e-5', 'differs_at_1e-6', 
-                       'differs_at_1e-7', 'differs_below_1e-7']
+                       'differs_at_1e-7', 'differs_at_1e-8', 'differs_at_1e-9',
+                       'differs_at_1e-10', 'differs_at_1e-11', 'differs_at_1e-12',
+                       'differs_at_1e-13', 'differs_at_1e-14', 'differs_at_1e-15']
     
     aggregated = {level: 0 for level in precision_levels}
     aggregated['exact_matches'] = 0
+    aggregated['differs_below_1e-15'] = 0
     
     for stage_data in stages.values():
         dec_analysis = stage_data['decimal_precision_analysis']
         for level in precision_levels:
             aggregated[level] += dec_analysis.get(level, 0)
         aggregated['exact_matches'] += dec_analysis.get('exact_matches', 0)
+        aggregated['differs_below_1e-15'] += dec_analysis.get('differs_below_1e-15', 0)
     
     # Create visualization
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(18, 6))
     
     # Plot 1: Bar chart of precision levels
-    labels = ['≥1e-1', '≥1e-2', '≥1e-3', '≥1e-4', '≥1e-5', '≥1e-6', '≥1e-7', '<1e-7']
+    labels = ['≥1e-1', '≥1e-2', '≥1e-3', '≥1e-4', '≥1e-5', '≥1e-6', '≥1e-7',
+              '≥1e-8', '≥1e-9', '≥1e-10', '≥1e-11', '≥1e-12', '≥1e-13', '≥1e-14', '≥1e-15']
     values = [aggregated[level] for level in precision_levels]
     colors = plt.cm.Reds(np.linspace(0.9, 0.3, len(labels)))
     
     axes[0].bar(labels, values, color=colors, edgecolor='black', linewidth=0.5)
     axes[0].set_xlabel('Difference Magnitude', fontsize=12)
     axes[0].set_ylabel('Number of Values', fontsize=12)
-    axes[0].set_title('Distribution of Difference Magnitudes', fontsize=12, fontweight='bold')
+    axes[0].set_title('Distribution of Difference Magnitudes (1e-1 to 1e-15)', fontsize=12, fontweight='bold')
     axes[0].set_yscale('log')
     axes[0].grid(True, alpha=0.3, axis='y')
     axes[0].tick_params(axis='x', rotation=45)
@@ -572,7 +574,7 @@ def plot_decimal_precision(results: Dict, output_prefix: str):
     # Add value labels on bars
     for i, (label, value) in enumerate(zip(labels, values)):
         if value > 0:
-            axes[0].text(i, value, f'{value:,}', ha='center', va='bottom', fontsize=8)
+            axes[0].text(i, value, f'{value:,}', ha='center', va='bottom', fontsize=7)
     
     # Plot 2: Cumulative distribution
     cumulative = []
@@ -593,19 +595,19 @@ def plot_decimal_precision(results: Dict, output_prefix: str):
     # Add total and exact match info
     total_values = running_sum + aggregated['exact_matches']
     fig.text(0.5, 0.02, 
-             f"Total values analyzed: {total_values:,} | Exact matches: {aggregated['exact_matches']:,} ({aggregated['exact_matches']/total_values*100:.2f}%)",
+             f"Total values analyzed: {total_values:,} | Exact matches: {aggregated['exact_matches']:,} ({aggregated['exact_matches']/total_values*100:.2f}%) | Below 1e-15: {aggregated['differs_below_1e-15']:,}",
              ha='center', fontsize=11, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
-    plt.suptitle(f'Question {results["question_id"]} - Token {results["token_index"]}: Decimal Precision Analysis', 
-                 fontsize=16, fontweight='bold')
+    plt.suptitle(f'Question {results["question_id"]} - Token {results["token_index"]}: Extended Decimal Precision Analysis (1e-1 to 1e-15)', 
+                 fontsize=14, fontweight='bold')
     
-    plt.tight_layout(rect=[0, 0.05, 1, 0.96])
+    plt.tight_layout(rect=[0, 0.08, 1, 0.96])
     plt.savefig(f'{output_prefix}_q{results["question_id"]}_decimal_precision.png', dpi=300, bbox_inches='tight')
     print(f"Saved decimal precision plot: {output_prefix}_q{results['question_id']}_decimal_precision.png")
     plt.close()
 
 def main():
-    parser = argparse.ArgumentParser(description="Direct GPU representation comparison")
+    parser = argparse.ArgumentParser(description="Direct GPU representation comparison (extended precision)")
     parser.add_argument("gpu1_dir", type=str, help="Path to GPU1 results directory")
     parser.add_argument("gpu2_dir", type=str, help="Path to GPU2 results directory")
     parser.add_argument("--question_ids", type=int, nargs='+', 
@@ -617,7 +619,7 @@ def main():
     parser.add_argument("--num_layers", type=int, default=32,
                        help="Number of transformer layers (default: 32)")
     parser.add_argument("--output_file", type=str,
-                       default="exp8_part8_gpu_representation_comparison.json")
+                       default="exp8_part8_f32_tok199_gpu_representation_comparison_extended.json")
     parser.add_argument("--verbose", action="store_true",
                        help="Print detailed summaries")
     parser.add_argument("--plot", action="store_true",
@@ -706,39 +708,11 @@ if __name__ == "__main__":
 Example usage:
 
 # Analyze all questions using divergence file
-python gpu_comparison.py \
-    "/path/to/gpu1/results" \
-    "/path/to/gpu2/results" \
-    --divergence_file "divergence_analysis.json" \
-    --verbose
-
-# Analyze specific questions at specific token index
-python gpu_comparison.py \
-    "/path/to/gpu1/results" \
-    "/path/to/gpu2/results" \
-    --question_ids 1 5 10 \
-    --token_idx 50 \
-    --verbose
-
-# Analyze specific question with detailed output
-python gpu_comparison.py \
-    "/path/to/gpu1/results" \
-    "/path/to/gpu2/results" \
-    --question_ids 1 \
-    --token_idx 50 \
-    --num_layers 32 \
-    --output_file "question1_comparison.json" \
-    --verbose
-"""
-
-"""
-Example usage:
-
-# Analyze all questions using divergence file
 python exp8_part8_rep_comparison_two_gpus.py \
-    "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/A5000x2_exp8_part5_comprehensive_2025-11-02_12-49-05" \
-    "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/A6000_exp8_part5_comprehensive_2025-11-02_12-55-07" \
+    "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/A5000_exp8_part5_comprehensive_float32_2025-11-04_10-32-08" \
+    "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/A6000_exp8_part5_comprehensive_float32_2025-11-04_10-38-04" \
     --divergence_file "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/exp8_part2_comprehensive_divergence_analysis.json" \
+    --token_index 0 \
     --verbose
 
 # Analyze specific questions at specific token index

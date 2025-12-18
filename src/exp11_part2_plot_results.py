@@ -7,7 +7,7 @@ import numpy as np
 
 def plot_rotation_analysis_results(
     json_path="exp11_results.json", 
-    output_dir="exp11_plots"
+    output_dir="exp11_plots_2"
 ):
     """
     Loads results from the JSON file and creates plots for each 'jump'.

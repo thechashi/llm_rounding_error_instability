@@ -88,6 +88,10 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import warnings
 warnings.filterwarnings('ignore')
 
+# SINGLE CONTROL VARIABLE FOR PRECISION
+# Change this to torch.float16 or torch.float64 as needed
+PRECISION = torch.float32
+
 # -----------------------------
 # Load LLaMA model and tokenizer
 # -----------------------------
@@ -100,7 +104,7 @@ def load_llama_model(model_path="/home/chashi/Desktop/Research/My Projects/model
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         device_map="auto",
-        torch_dtype=torch.float32,  # Use float32 for better numerical precision in Jacobian
+        torch_dtype=PRECISION,  # Use the global PRECISION variable
         trust_remote_code=True,
         low_cpu_mem_usage=True
     )
@@ -297,12 +301,12 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
     print("COMPUTING JACOBIAN")
     print("="*80)
     jacobian, last_token_embedding = compute_jacobian(model, full_embeddings, last_token_idx)
-    
+    svd_input = jacobian.float()
     # Perform SVD
     print("\n" + "="*80)
     print("PERFORMING SVD")
     print("="*80)
-    U, S, Vt = perform_svd(jacobian)
+    U, S, Vt = perform_svd(svd_input)
     
     # Store original prediction once (same for all directions/epsilons)
     with torch.no_grad():
@@ -437,12 +441,17 @@ def analyze_lipschitz_constants(model, tokenizer, input_text, top_k=5, epsilon_p
 # Run analysis
 # -----------------------------
 if __name__ == "__main__":
-    print("Loading LLaMA 3.1 model...")
+    print(f"Loading LLaMA 3.1 model with precision: {PRECISION}...")
     model, tokenizer = load_llama_model()
     
     # Test with different inputs
     test_inputs = [
-        "The capital of France is",
+        # "The bank is by",
+        # "I saw the man with the telescope",
+        # "Visiting relatives can be boring", 
+        # "A patient arrives with fever and chest pain",
+        "Neither agree nor disagree",
+        # "The capital of France is",
         # "Machine learning is a subset of",
         # "To solve this problem, we need to"
     ]
@@ -506,4 +515,5 @@ if __name__ == "__main__":
                     print(f"      Lipschitz range: [{subset['lipschitz_constant'].min():.6f}, {subset['lipschitz_constant'].max():.6f}]")
                     print(f"      Mean Lipschitz: {subset['lipschitz_constant'].mean():.6f}")
     
+    print(f"\nAnalysis complete using precision: {PRECISION}")
     print("\nDone!")

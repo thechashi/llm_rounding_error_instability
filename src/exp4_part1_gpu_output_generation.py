@@ -107,6 +107,8 @@ from pathlib import Path
 from typing import Dict, List, Any
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import warnings
+import argparse
+import functools
 warnings.filterwarnings('ignore')
 
 def set_seed(seed: int = 42):
@@ -248,6 +250,43 @@ def generate_tokens_with_full_data(
         'full_text': current_text
     }
 
+def activation_hook(module, input, output, layer_idx):
+    """A hook to print the mean of the activation output."""
+    print(f"  [Hook] MLP Layer {layer_idx} SiLU Act Output Mean: {output.mean().item():.6f}")
+
+def generate_tokens_with_activation_inspection(
+    model, 
+    tokenizer, 
+    input_text: str, 
+    num_tokens: int = 1000,
+    seed: int = 42
+) -> Dict[str, Any]:
+    """
+    A modified version of generate_tokens_with_full_data that includes hooks
+    to inspect the MLP activation functions.
+    """
+    print("\n--- Running Generation with Activation Inspection ---")
+    
+    hook_handles = []
+    try:
+        # Register forward hooks on the activation function of each MLP layer
+        for i, layer in enumerate(model.model.layers):
+            hook_func = functools.partial(activation_hook, layer_idx=i)
+            handle = layer.mlp.act_fn.register_forward_hook(hook_func)
+            hook_handles.append(handle)
+        
+        # Run the original generation function
+        data = generate_tokens_with_full_data(model, tokenizer, input_text, num_tokens, seed)
+
+    finally:
+        # Always remove hooks
+        for handle in hook_handles:
+            handle.remove()
+        print("--- Activation Hooks Removed ---\n")
+        
+    return data
+
+
 def save_generation_data(data: Dict, output_dir: Path, question_id: int):
     """Save all generation data to separate files"""
     # Create question-specific directory
@@ -296,6 +335,14 @@ def save_generation_data(data: Dict, output_dir: Path, question_id: int):
     print(f"  Saved all data to {question_dir}")
 
 def main():
+    parser = argparse.ArgumentParser(description="Experiment 4: GPU Hardware Comparison for Numerical Instability.")
+    parser.add_argument(
+        "--inspect_activations",
+        action="store_true",
+        help="Enable hooks to inspect MLP SiLU activations during generation."
+    )
+    args = parser.parse_args()
+
     # Configuration
     MODEL_PATH = "/home/chashi/Desktop/Research/My Projects/models/Llama-3.1-8B-Instruct"
 
@@ -339,6 +386,12 @@ def main():
     print("="*80)
     model, tokenizer = load_model(MODEL_PATH)
 
+    # Determine which generation function to use
+    if args.inspect_activations:
+        generation_function = generate_tokens_with_activation_inspection
+    else:
+        generation_function = generate_tokens_with_full_data
+
     # Process each question
     for i, question in enumerate(questions, 1):
         print("\n" + "="*80)
@@ -348,7 +401,7 @@ def main():
         print()
         
         # Generate tokens with all data
-        data = generate_tokens_with_full_data(
+        data = generation_function(
             model=model,
             tokenizer=tokenizer,
             input_text=question,

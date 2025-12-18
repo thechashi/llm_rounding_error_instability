@@ -77,7 +77,7 @@ def load_model(model_path: str):
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         device_map="auto",
-        torch_dtype=torch.bfloat16,
+        torch_dtype=torch.float32,
         trust_remote_code=True,
         output_hidden_states=True,
         low_cpu_mem_usage=True

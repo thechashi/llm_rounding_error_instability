@@ -175,7 +175,9 @@ def compute_svd_directions(model, tokenizer, embeddings, last_token_idx):
 
 # # 100x zoom (focused around origin)
 # e_min=-1e-8, e_max=1e-8, step=1e-10
-def compute_logit_difference_grid(model, embeddings, last_token_idx, x0, h1, h2, token_indices, e_min=-1e-7, e_max=1e-7, step=1e-9):
+
+# e_min=-1e-10, e_max=1e-10, step=1e-12
+def compute_logit_difference_grid(model, embeddings, last_token_idx, x0, h1, h2, token_indices, e_min=-1e-8, e_max=1e-8, step=1e-10):
     """Compute L1(x0 + e1*h1 + e2*h2) - L2(x0 + e1*h1 + e2*h2) over a grid"""
     device = next(model.parameters()).device
     W_U = get_unembedding_matrix(model)
