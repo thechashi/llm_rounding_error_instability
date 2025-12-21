@@ -96,7 +96,8 @@ def analyze_singular_vector_rotation(
     threshold=0,
     max_rotations=None,
     rotation_step_size=1,
-    output_path="exp11_results.json"
+    output_path="exp11_results.json",
+    use_float64_perturbation=True
 ):
     """
     Main function to run the singular vector rotation analysis and save results to JSON.
@@ -111,6 +112,7 @@ def analyze_singular_vector_rotation(
         max_rotations (int, optional): Limit rotations for a quicker test.
         rotation_step_size (int): The step size for the rotation loop.
         output_path (str): Path to save the JSON results.
+        use_float64_perturbation (bool): If True, perform perturbation in float64.
     """
     print("="*80)
     print("Experiment 11: Singular Vector Rotation Analysis")
@@ -120,6 +122,7 @@ def analyze_singular_vector_rotation(
     print(f"Singular vector index: {singular_idx}")
     print(f"Max rotations to test: {max_rotations or 4096}")
     print(f"Rotation step size: {rotation_step_size}")
+    print(f"Use float64 for perturbation: {use_float64_perturbation}")
     print(f"Output will be saved to: {output_path}")
     print("="*80)
 
@@ -175,8 +178,12 @@ def analyze_singular_vector_rotation(
             rotated_direction = torch.roll(direction, shifts=n, dims=0)
             
             # Create perturbed embeddings
-            perturbed_emb1 = original_input_emb + e1 * rotated_direction
-            perturbed_emb2 = original_input_emb + e2 * rotated_direction
+            if use_float64_perturbation:
+                perturbed_emb1 = (original_input_emb.double() + e1 * rotated_direction.double()).float()
+                perturbed_emb2 = (original_input_emb.double() + e2 * rotated_direction.double()).float()
+            else:
+                perturbed_emb1 = original_input_emb + e1 * rotated_direction
+                perturbed_emb2 = original_input_emb + e2 * rotated_direction
             
             # Get hidden states for both perturbations
             embeddings1 = embeddings.clone()
@@ -238,5 +245,6 @@ if __name__ == "__main__":
         jumps=jumps_to_test,
         singular_idx=0,
         max_rotations=4096, # Set to a smaller number for a quick test
-        rotation_step_size=64 # Jump k steps in rotation
+        rotation_step_size=64, # Jump k steps in rotation
+        use_float64_perturbation=True
     )

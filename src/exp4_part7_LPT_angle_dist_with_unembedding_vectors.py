@@ -44,6 +44,8 @@ import json
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from scipy.spatial.distance import cosine
 import warnings
+import argparse
+
 warnings.filterwarnings('ignore')
 
 # Set style for better-looking plots
@@ -682,46 +684,41 @@ def plot_aggregated_distributions(
 
 
 def main():
+    parser = argparse.ArgumentParser(description="LPT to Unembedding Vector Angle Distribution Analysis")
+    parser.add_argument('--model_path', type=str, default="/home/chashi/Research/Llama-3.1-8B-Instruct", help='Path to the Llama model')
+    parser.add_argument('--exp4_dir', type=Path, default="/home/chashi/Research/llm_rounding_error_instability/exp4_generation_results_A6000_48GB", help='Path to the experiment 4 results directory')
+    parser.add_argument('--output_dir', type=Path, default=Path("../results/exp4_part7_lpt_unembedding_angle_analysis"), help='Output directory for angle analysis')
+    parser.add_argument('--device', type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help='Device to load model on')
+    args = parser.parse_args()
+
     # ============================================================
     # Configuration
     # ============================================================
-    MODEL_PATH = "/home/chashi/Research/Llama-3.1-8B-Instruct"
-    
-    # Specify your experiment4 results directory
-    # Example: "../results/exp4_2024-11-01_10-30-45"
-    EXP4_DIR = Path("/home/chashi/Research/llm_rounding_error_instability/exp4_generation_results_A6000_48GB")  # MODIFY THIS
-    
-    # Output directory for angle analysis
-    OUTPUT_DIR = Path("../results/exp4_part7_lpt_unembedding_angle_analysis")
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # Rank categories to analyze
     RANK_CATEGORIES = [1, 2, 3, 10, 100]
     
-    # Device
-    DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
-    
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
     print("="*100)
     print("LPT TO UNEMBEDDING VECTOR ANGLE ANALYSIS")
     print("="*100)
-    print(f"Experiment directory: {EXP4_DIR}")
-    print(f"Output directory: {OUTPUT_DIR}")
+    print(f"Experiment directory: {args.exp4_dir}")
+    print(f"Output directory: {args.output_dir}")
     print(f"Rank categories: {RANK_CATEGORIES}")
-    print(f"Device: {DEVICE}")
+    print(f"Device: {args.device}")
     print("="*100)
     
     # ============================================================
     # Load Model for Unembedding Weights
     # ============================================================
-    unembedding_weights, tokenizer = load_model_for_unembedding(MODEL_PATH, DEVICE)
+    unembedding_weights, tokenizer = load_model_for_unembedding(args.model_path, args.device)
     
     # ============================================================
     # Find All Question Directories
     # ============================================================
-    question_dirs = sorted([d for d in EXP4_DIR.iterdir() if d.is_dir() and d.name.startswith("question_")])
+    question_dirs = sorted([d for d in args.exp4_dir.iterdir() if d.is_dir() and d.name.startswith("question_")])
     
     if not question_dirs:
-        print(f"\nERROR: No question directories found in {EXP4_DIR}")
+        print(f"\nERROR: No question directories found in {args.exp4_dir}")
         print("Please ensure the experiment directory contains question_XX subdirectories.")
         return
     
@@ -781,7 +778,7 @@ def main():
                 all_angles_by_rank[rank].append(angles_by_rank[rank])
         
         # Create plots for this question
-        question_output_dir = OUTPUT_DIR / f"question_{question_id:02d}"
+        question_output_dir = args.output_dir / f"question_{question_id:02d}"
         plot_angle_distributions(
             angles_by_rank,
             question_id,
@@ -792,12 +789,12 @@ def main():
     # ============================================================
     # Save Statistics
     # ============================================================
-    save_statistics(stats_by_question, OUTPUT_DIR)
+    save_statistics(stats_by_question, args.output_dir)
     
     # ============================================================
     # Create Aggregated Plots
     # ============================================================
-    plot_aggregated_distributions(all_angles_by_rank, OUTPUT_DIR)
+    plot_aggregated_distributions(all_angles_by_rank, args.output_dir)
     
     # ============================================================
     # Final Summary
@@ -805,11 +802,11 @@ def main():
     print("\n" + "="*100)
     print("ANALYSIS COMPLETE!")
     print("="*100)
-    print(f"Results saved to: {OUTPUT_DIR.absolute()}")
+    print(f"Results saved to: {args.output_dir.absolute()}")
     print("\nGenerated files:")
-    print(f"  - Per-question plots: {OUTPUT_DIR}/question_XX/")
-    print(f"  - Aggregated plots: {OUTPUT_DIR}/aggregated_*.png")
-    print(f"  - Statistics: {OUTPUT_DIR}/angle_statistics.json")
+    print(f"  - Per-question plots: {args.output_dir}/question_XX/")
+    print(f"  - Aggregated plots: {args.output_dir}/aggregated_*.png")
+    print(f"  - Statistics: {args.output_dir}/angle_statistics.json")
     print("="*100)
 
 

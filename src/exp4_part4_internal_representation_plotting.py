@@ -235,30 +235,55 @@ def plot_representation_comparison(repr_file1, repr_file2, output_file='repr_com
     plt.show()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python plot_repr.py <repr_file1.npy> <repr_file2.npy> [output.png] [divergence_index]")
-        print("Example: python plot_repr.py repr1.npy repr2.npy comparison.png 50")
-        sys.exit(1)
+    import argparse
 
-    # Create timestamped experiment directory
+    parser = argparse.ArgumentParser(
+        description="Experiment 4 Part 4: Create visualization plots comparing hidden representations from different GPU runs.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument(
+        'repr_file1', 
+        type=str, 
+        help='Path to the first representations file (e.g., from GPU 1 run).'
+    )
+    parser.add_argument(
+        'repr_file2', 
+        type=str, 
+        help='Path to the second representations file (e.g., from GPU 2 run).'
+    )
+    parser.add_argument(
+        '--output_file', 
+        type=str, 
+        default='repr_comparison.png', 
+        help='Name for the output plot file. Default: repr_comparison.png'
+    )
+    parser.add_argument(
+        '--divergence_idx', 
+        type=int, 
+        default=None, 
+        help='(Optional) The token index where divergence occurred. A vertical line will be added to the plot.'
+    )
+
+    args = parser.parse_args()
+
+    # Create a timestamped directory for the results
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     exp_dir = os.path.join("../results", f"exp4_part4_{timestamp}")
     os.makedirs(exp_dir, exist_ok=True)
 
-    repr_file1 = sys.argv[1]
-    repr_file2 = sys.argv[2]
-    output_filename = sys.argv[3] if len(sys.argv) > 3 and not sys.argv[3].isdigit() else 'repr_comparison.png'
-    output_file = os.path.join(exp_dir, output_filename)
-    divergence_idx = None
+    # Construct the full path for the output file
+    output_file_path = os.path.join(exp_dir, args.output_file)
 
-    # Handle divergence index - could be 3rd or 4th argument
-    if len(sys.argv) > 3:
-        if sys.argv[3].isdigit():
-            divergence_idx = int(sys.argv[3])
-        elif len(sys.argv) > 4 and sys.argv[4].isdigit():
-            divergence_idx = int(sys.argv[4])
-
-    plot_representation_comparison(repr_file1, repr_file2, output_file, divergence_idx)
+    plot_representation_comparison(
+        args.repr_file1,
+        args.repr_file2,
+        output_file=output_file_path,
+        divergence_idx=args.divergence_idx
+    )
 """
-python3 src/experiment4_part4_rep_com_plot.py "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/exp4_generation_results_A5000_2x24GB/question_01/representations.npy" "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/exp4_generation_results_A6000_48GB/question_01/representations.npy" exp4_q1_reps.png 52
+python3 src/exp4_part4_internal_representation_plotting.py \\
+    "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/exp4_gpu0/question_01/representations.npy" \\
+    "/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/exp4_gpu1/question_01/representations.npy" \\
+    --output_file "exp4_q1_reps_comparison.png" \\
+    --divergence_idx 52
 """

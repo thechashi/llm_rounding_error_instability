@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 import os
 from datetime import datetime
+import argparse
 
 def load_question_data_at_indices(question_dir: Path, indices: list):
     """Load specific data at given indices for a single question"""
@@ -199,21 +200,32 @@ def analyze_all_questions(folder1: Path, folder2: Path, num_questions: int = 10,
     
     return all_results, summary_df if divergence_summary else None
 
-if __name__ == "__main__":
-    # Create experiment directory
+def main():
+    parser = argparse.ArgumentParser(description="Compare top-5 logits and words at divergence points between two experiment runs.")
+    parser.add_argument('folder1', type=Path, help='Path to the first results folder (e.g., from GPU 1).')
+    parser.add_argument('folder2', type=Path, help='Path to the second results folder (e.g., from GPU 2).')
+    parser.add_argument('--num_questions', type=int, default=10, help='Number of questions to analyze (default: 10).')
+
+    args = parser.parse_args()
+
+    # Create a timestamped directory for any results, if needed
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     exp_dir = Path(f"../results/exp7_{timestamp}")
     exp_dir.mkdir(parents=True, exist_ok=True)
-
-    # Set your folder paths here
-    gpu1_folder = Path("/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/old/old/exp4_generation_results_A5000_2x24GB")  # Replace with your GPU0 folder
-    gpu2_folder = Path("/home/chashi/Desktop/Research/My Projects/llm_rounding_error_instability/results/old/old/exp4_generation_results_A6000_48GB")  # Replace with your GPU1 folder
     
     # Analyze all questions
-    print("\n\nALL QUESTIONS ANALYSIS")
+    print("\n\n--- DETAILED LOGIT ANALYSIS AT DIVERGENCE ---")
     all_results, summary = analyze_all_questions(
-        gpu1_folder, 
-        gpu2_folder, 
-        num_questions=10,
+        args.folder1, 
+        args.folder2, 
+        num_questions=args.num_questions,
         save_dir=exp_dir
     )
+
+    if summary is not None and not summary.empty:
+        summary_path = exp_dir / 'divergence_summary.csv'
+        summary.to_csv(summary_path, index=False)
+        print(f"\nSummary saved to: {summary_path}")
+
+if __name__ == "__main__":
+    main()
