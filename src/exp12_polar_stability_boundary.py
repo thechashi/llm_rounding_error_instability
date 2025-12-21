@@ -228,12 +228,12 @@ def polar_stability_analysis(text="The capital of France is",
         print(f"  σ_{i} = {S[i].item():.6f}")
 
     # Get first two singular vectors
-    e1 = Vt[0, :]  # First singular vector
-    e2 = Vt[1, :]  # Second singular vector
+    e1_sv = Vt[0, :]  # First singular vector (renamed to avoid conflict with e1 param)
+    e2_sv = Vt[1, :]  # Second singular vector (renamed to avoid conflict with e2 param)
 
-    print(f"\nFirst singular vector norm: {torch.norm(e1).item():.6f}")
-    print(f"Second singular vector norm: {torch.norm(e2).item():.6f}")
-    print(f"Dot product (should be ~0): {torch.dot(e1, e2).item():.6e}")
+    print(f"\nFirst singular vector norm: {torch.norm(e1_sv).item():.6f}")
+    print(f"Second singular vector norm: {torch.norm(e2_sv).item():.6f}")
+    print(f"Dot product (should be ~0): {torch.dot(e1_sv, e2_sv).item():.6e}")
 
     # Get original hidden state
     print("\n[4/6] Computing original hidden state...")
@@ -251,13 +251,14 @@ def polar_stability_analysis(text="The capital of France is",
 
     for i, theta in enumerate(tqdm(thetas, desc="Processing angles")):
         # Create perturbation direction
-        direction = np.cos(theta) * e1.cpu().numpy() + np.sin(theta) * e2.cpu().numpy()
-        direction_tensor = torch.from_numpy(direction).to(device).float()
+        direction_np = np.cos(theta) * e1_sv.cpu().numpy() + np.sin(theta) * e2_sv.cpu().numpy()
+        direction_tensor = torch.from_numpy(direction_np).to(device).float()
 
         # Binary search for max s
         max_s, low_s, high_s = binary_search_max_s(
             model, embeddings, last_idx, direction_tensor,
-            original_hidden, s_min=0, s_max=s_max, threshold=threshold
+            original_hidden, s_min=0, s_max=s_max, threshold=threshold,
+            use_float64_perturbation=use_float64_perturbation
         )
 
         max_s_values[i] = max_s

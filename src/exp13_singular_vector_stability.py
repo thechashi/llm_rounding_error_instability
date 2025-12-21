@@ -104,6 +104,7 @@ def binary_search_max_s(
     tolerance=1e-15,
     max_iterations=100,
     threshold=0,
+    use_float64_perturbation=True,
 ):
     """
     Finds the exact float32 max_s using:
@@ -123,7 +124,11 @@ def binary_search_max_s(
         mid = (low + high) / 2.0
         mid = float(np.float32(mid))  # force float32 lattice
 
-        perturbed_emb = original_emb + mid * direction
+        if use_float64_perturbation:
+            perturbed_emb = (original_emb.double() + mid * direction.double()).float()
+        else:
+            perturbed_emb = original_emb + mid * direction
+
         embeddings_perturbed = original_embeddings.clone()
         embeddings_perturbed[0, last_token_idx, :] = perturbed_emb
 
@@ -150,9 +155,12 @@ def binary_search_max_s(
     while True:
         s_next = np.nextafter(s, np.float32(np.inf))
 
-        perturbed_emb = original_emb + torch.tensor(
-            float(s_next), device=device
-        ) * direction
+        if use_float64_perturbation:
+            perturbed_emb = (original_emb.double() + torch.tensor(float(s_next), device=device, dtype=torch.double) * direction.double()).float()
+        else:
+            perturbed_emb = original_emb + torch.tensor(
+                float(s_next), device=device
+            ) * direction
 
         embeddings_perturbed = original_embeddings.clone()
         embeddings_perturbed[0, last_token_idx, :] = perturbed_emb
@@ -179,7 +187,8 @@ def binary_search_max_s(
 def singular_vector_stability_analysis(text="The capital of France is",
                                        s_max=1e-6,
                                        threshold=0,
-                                       exp_dir="./results/exp13"):
+                                       exp_dir="./results/exp13",
+                                       use_float64_perturbation=True):
     """
     Main function to perform singular vector stability analysis.
 
@@ -188,6 +197,7 @@ def singular_vector_stability_analysis(text="The capital of France is",
         s_max: Maximum s value to search (default: 1e-6).
         threshold: Threshold for considering output as changed.
         exp_dir: Directory to save results.
+        use_float64_perturbation (bool): If True, perform perturbation in float64.
     """
     print("="*80)
     print("EXPERIMENT 13: Singular Vector Stability Analysis")
@@ -195,6 +205,7 @@ def singular_vector_stability_analysis(text="The capital of France is",
     print(f"Input text: '{text}'")
     print(f"Max s value: {s_max:.2e}")
     print(f"Threshold: {threshold}")
+    print(f"Use float64 for perturbation: {use_float64_perturbation}")
     print("="*80)
 
     # Load model
@@ -240,7 +251,8 @@ def singular_vector_stability_analysis(text="The capital of France is",
         # Binary search for max s
         max_s, low_s, high_s = binary_search_max_s(
             model, embeddings, last_idx, direction_tensor,
-            original_hidden, s_min=0, s_max=s_max, threshold=threshold
+            original_hidden, s_min=0, s_max=s_max, threshold=threshold,
+            use_float64_perturbation=use_float64_perturbation
         )
 
         max_s_values[i] = max_s
@@ -334,4 +346,5 @@ if __name__ == "__main__":
         s_max=1e-6,
         threshold=0,
         exp_dir=exp_dir,
+        use_float64_perturbation=True
     )
