@@ -106,6 +106,7 @@ def binary_search_max_s(
     tolerance=1e-15,
     max_iterations=100,
     threshold=0,
+    use_float64_perturbation=True
 ):
     """
     Finds the exact float32 max_s using:
@@ -125,7 +126,11 @@ def binary_search_max_s(
         mid = (low + high) / 2.0
         mid = float(np.float32(mid))  # force float32 lattice
 
-        perturbed_emb = original_emb + mid * direction
+        if use_float64_perturbation:
+            perturbed_emb = (original_emb.double() + mid * direction.double()).float()
+        else:
+            perturbed_emb = original_emb + mid * direction
+        
         embeddings_perturbed = original_embeddings.clone()
         embeddings_perturbed[0, last_token_idx, :] = perturbed_emb
 
@@ -152,9 +157,12 @@ def binary_search_max_s(
     while True:
         s_next = np.nextafter(s, np.float32(np.inf))
 
-        perturbed_emb = original_emb + torch.tensor(
-            float(s_next), device=device
-        ) * direction
+        if use_float64_perturbation:
+            perturbed_emb = (original_emb.double() + torch.tensor(float(s_next), device=device, dtype=torch.double) * direction.double()).float()
+        else:
+            perturbed_emb = original_emb + torch.tensor(
+                float(s_next), device=device
+            ) * direction
 
         embeddings_perturbed = original_embeddings.clone()
         embeddings_perturbed[0, last_token_idx, :] = perturbed_emb
@@ -183,7 +191,8 @@ def polar_stability_analysis(text="The capital of France is",
                              s_max=1e-6,
                              threshold=0,
                              exp_dir="./results/exp12",
-                             linear_refinement_step=0):
+                             linear_refinement_step=0,
+                             use_float64_perturbation=True):
     """
     Main function to perform polar stability boundary analysis
 
@@ -194,6 +203,7 @@ def polar_stability_analysis(text="The capital of France is",
         threshold: Threshold for considering output as changed
         exp_dir: Directory to save results
         linear_refinement_step: If > 0, step size for linear search refinement.
+        use_float64_perturbation (bool): If True, perform perturbation in float64.
     """
     print("="*80)
     print("EXPERIMENT 12: Polar Stability Boundary Analysis")
@@ -202,6 +212,7 @@ def polar_stability_analysis(text="The capital of France is",
     print(f"Number of angles: {num_angles}")
     print(f"Max s value: {s_max:.2e}")
     print(f"Threshold: {threshold}")
+    print(f"Use float64 for perturbation: {use_float64_perturbation}")
     if linear_refinement_step > 0:
         print(f"Linear refinement step: {linear_refinement_step:.2e}")
     print("="*80)
@@ -228,12 +239,12 @@ def polar_stability_analysis(text="The capital of France is",
         print(f"  σ_{i} = {S[i].item():.6f}")
 
     # Get first two singular vectors
-    e1_sv = Vt[0, :]  # First singular vector (renamed to avoid conflict with e1 param)
-    e2_sv = Vt[1, :]  # Second singular vector (renamed to avoid conflict with e2 param)
+    e1 = Vt[0, :]
+    e2 = Vt[1, :]
 
-    print(f"\nFirst singular vector norm: {torch.norm(e1_sv).item():.6f}")
-    print(f"Second singular vector norm: {torch.norm(e2_sv).item():.6f}")
-    print(f"Dot product (should be ~0): {torch.dot(e1_sv, e2_sv).item():.6e}")
+    print(f"\nFirst singular vector norm: {torch.norm(e1).item():.6f}")
+    print(f"Second singular vector norm: {torch.norm(e2).item():.6f}")
+    print(f"Dot product (should be ~0): {torch.dot(e1, e2).item():.6e}")
 
     # Get original hidden state
     print("\n[4/6] Computing original hidden state...")
@@ -251,8 +262,8 @@ def polar_stability_analysis(text="The capital of France is",
 
     for i, theta in enumerate(tqdm(thetas, desc="Processing angles")):
         # Create perturbation direction
-        direction_np = np.cos(theta) * e1_sv.cpu().numpy() + np.sin(theta) * e2_sv.cpu().numpy()
-        direction_tensor = torch.from_numpy(direction_np).to(device).float()
+        direction = np.cos(theta) * e1.cpu().numpy() + np.sin(theta) * e2.cpu().numpy()
+        direction_tensor = torch.from_numpy(direction).to(device).float()
 
         # Binary search for max s
         max_s, low_s, high_s = binary_search_max_s(
@@ -264,10 +275,6 @@ def polar_stability_analysis(text="The capital of France is",
         max_s_values[i] = max_s
         low_values[i] = low_s
         high_values[i] = high_s
-
-        # Progress update every 100 angles
-        if (i + 1) % 100 == 0:
-            print(f"  Processed {i+1}/{num_angles} angles. Current max_s: {max_s:.6e}")
 
     # Save results
     print("\n[6/6] Saving results...")
@@ -397,4 +404,5 @@ if __name__ == "__main__":
         s_max=1e-6,
         threshold=0,
         exp_dir=exp_dir,
+        use_float64_perturbation=True
     )
