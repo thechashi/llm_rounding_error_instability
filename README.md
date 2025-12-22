@@ -20,6 +20,8 @@ This repository contains the code and results for a series of experiments invest
   - [Experiment 11: Singular Vector Rotation Analysis](#experiment-11-singular-vector-rotation-analysis)
   - [Experiment 12: Polar Stability Boundary Analysis](#experiment-12-polar-stability-boundary-analysis)
   - [Experiment 13: Singular Vector Stability Analysis](#experiment-13-singular-vector-stability-analysis)
+  - [Experiment 14: Lipschitz Constants via Small Steps Analysis](#experiment-14-lipschitz-constants-via-small-steps-analysis)
+  - [Experiment 15: Stability Boundary L2 Distance Analysis](#experiment-15-stability-boundary-l2-distance-analysis)
   - [Additional Analysis: PDF Word-by-Word Prediction](#additional-analysis-pdf-word-by-word-prediction)
 - [Results](#results)
 - [Citation](#citation)
@@ -1082,6 +1084,226 @@ This experiment analyzes the stability of the model by measuring the maximum per
     - Mean, median, min, max, and standard deviation of max_s across all singular vectors
     - Indices of singular vectors with minimum and maximum stability
     - Top 5 singular values from the SVD
+
+### Experiment 14: Lipschitz Constants via Small Steps Analysis
+
+This experiment investigates the local smoothness and numerical stability of the Llama model by taking extremely small consecutive steps along a principal singular direction and measuring how the output changes. It provides insight into whether the model behaves smoothly at machine precision scales or exhibits discrete jumps due to floating-point rounding errors.
+
+#### `src/exp14_lipschitz_small_steps_analysis.py`
+
+- **Purpose:** Tests whether the model function behaves smoothly at very small scales by taking tiny consecutive steps along the first singular vector direction and measuring consecutive output differences. This reveals the effects of floating-point precision on the model's apparent continuity and Lipschitz behavior.
+
+- **Key Questions:**
+  - Is the function locally Lipschitz continuous at floating-point precision?
+  - Do consecutive differences scale linearly with step size?
+  - Where do numerical precision effects dominate over smooth behavior?
+  - Are there discrete jumps in the output despite smooth input changes?
+
+- **Methodology:**
+  1. Load Llama model in `float32` precision
+  2. Compute Jacobian SVD for the full model (last token embedding → last hidden state)
+  3. Extract first right singular vector (direction of maximum sensitivity)
+  4. Generate sequence of epsilon values: ε₀, ε₀ + δ, ε₀ + 2δ, ..., ε₀ + Nδ where δ is very small (e.g., 2e-14)
+  5. For each epsilon:
+     - Perturb input: `x_perturbed = x_original + ε · v₁`
+     - Compute output: `y = f(x_perturbed)`
+     - Measure consecutive difference: `||y_t - y_{t-1}||`
+  6. Analyze patterns:
+     - Identify zero-difference steps (no change despite input change)
+     - Detect sudden jumps (rounding-induced discontinuities)
+     - Compute statistics on difference magnitudes
+     - Analyze spacing between jumps
+
+- **How to run:**
+  ```bash
+  python src/exp14_lipschitz_small_steps_analysis.py \
+      --text "The capital of France is" \
+      --epsilon-start 1e-6 \
+      --epsilon-step 2e-14 \
+      --total-steps 500 \
+      --use-float64-perturbation True
+  ```
+
+  **Command-line arguments:**
+  - `--text`: Input text to analyze (default: "The capital of France is")
+  - `--epsilon-start`: Starting epsilon value (default: 1e-6)
+  - `--epsilon-step`: Step size for epsilon (default: 2e-14)
+  - `--total-steps`: Number of steps to take (default: 500)
+  - `--use-float64-perturbation`: Use float64 precision for perturbation calculation (default: True)
+  - `--output-dir`: Output directory (default: auto-generated with timestamp)
+
+- **Inputs:**
+  - Model path (hardcoded): `/home/chashi/Desktop/Research/My Projects/models/Llama-3.1-8B-Instruct`
+  - Input text: Configurable via `--text` argument
+  - Epsilon parameters: Configurable via command-line arguments
+
+- **Output Structure:**
+  - Creates a timestamped directory in `../results/` (e.g., `../results/exp14_2025-12-18_10-00-00/`)
+  - Inside this directory, it saves:
+    - **`lipschitz_small_steps_input_embeddings.npy`**: Input embeddings for all epsilon values
+    - **`lipschitz_small_steps_output_embeddings.npy`**: Output embeddings for all epsilon values
+    - **`lipschitz_small_steps_difference_norms.npy`**: Consecutive difference norms between outputs
+    - **`lipschitz_small_steps_complete.npz`**: Complete data archive containing:
+      - `epsilons`: Array of all epsilon values tested
+      - `input_embeddings`: All input embeddings
+      - `output_embeddings`: All output embeddings
+      - `difference_norms`: Consecutive difference norms
+      - `singular_values`: Top singular values from the Jacobian SVD
+      - `singular_vector_1`: First right singular vector used for perturbations
+      - `original_input_embedding`: Original unperturbed embedding
+      - Metadata: epsilon_start, epsilon_step, total_steps, use_float64, text
+    - **`lipschitz_small_steps_jump_analysis.npz`**: Detailed jump point analysis containing:
+      - `jump_indices`: Indices where non-zero differences occur
+      - `jump_epsilons`: Epsilon values at jump points
+      - `jump_magnitudes`: Magnitudes of differences at jumps
+    - **`lipschitz_small_steps_consecutive_differences.pdf`**: Visualization with two subplots:
+      - Main plot: Consecutive difference norms vs. steps, with jump points highlighted
+      - Zoomed plot: Detailed view around the first jump point
+    - **`lipschitz_small_steps_distributions.pdf`**: Distribution analysis with two subplots:
+      - Histogram of non-zero difference magnitudes
+      - Histogram of spacing between jumps
+  - Prints detailed statistics including:
+    - Mean, std, min, max of consecutive differences
+    - Number and percentage of jump points (non-zero differences)
+    - First 10 jump points with epsilon values and difference magnitudes
+    - Jump magnitude statistics (mean, std, min, max, median)
+    - Jump spacing statistics (mean, std, min, max, median spacing)
+    - All jump points with high-precision values
+
+- **Expected Behavior:**
+  - **IF** the function were smooth and Lipschitz continuous:
+    - Consecutive differences would be approximately constant (proportional to step size)
+    - No sudden jumps or zero plateaus
+  - **OBSERVED** behavior due to `float32` precision:
+    - Most steps have ZERO difference (no change in output)
+    - Occasional SPIKES when rounding crosses a threshold
+    - Non-uniform spacing of jumps
+    - Function appears discontinuous at this scale
+
+- **Use Case:**
+  - Understand numerical stability at machine precision scales
+  - Quantify how floating-point arithmetic affects LLM behavior
+  - Identify critical thresholds where rounding matters
+  - Design robust perturbation magnitudes for other experiments
+
+- **Relationship to Other Experiments:**
+  - Builds on Experiment 1's SVD framework
+  - Complements Experiment 8's perturbation analysis
+  - Provides micro-scale view vs Experiment 1's macro comparisons
+  - Establishes lower bounds for meaningful perturbation sizes
+  - Validates the Lipschitz constant estimates from Experiment 2
+
+### Experiment 15: Stability Boundary L2 Distance Analysis
+
+This experiment extends Experiment 12 by quantifying the magnitude of changes that occur when crossing the stability boundary. It measures the L2 distances between the original and perturbed embeddings, as well as between the original and changed hidden states, at the exact point where the model's output first changes.
+
+#### `src/exp15_stability_boundary_analysis.py`
+
+- **Purpose:** To quantify the magnitude of change in both the input embedding and the final hidden state representation when crossing the stability boundary identified in Experiment 12. This reveals how small the input perturbation is and how large the corresponding output change becomes, providing empirical evidence of the model's numerical instability.
+
+- **Relationship to Experiment 12:**
+  - Requires the `.npz` output file from Experiment 12 as input
+  - Uses the same angles (thetas) and stability boundary values (max_s) from Experiment 12
+  - Analyzes what happens at `min_t = nextafter(max_s)`, the smallest perturbation that causes a change
+
+- **Methodology:**
+  1. Load the `.npz` data file generated by `exp12_polar_stability_boundary.py`, which contains:
+     - Angles (thetas) in the 2D space spanned by the first two singular vectors
+     - Maximum stable perturbation magnitudes (max_s) for each angle
+     - Singular vectors e₁ and e₂
+  2. Load the Llama model and tokenizer in `float32` precision
+  3. Recreate the original input embedding and original final hidden state
+  4. For each angle (theta) and its corresponding max_s:
+     - Calculate `min_t = nextafter(max_s, inf)`, the next representable float value after max_s
+     - This is the smallest perturbation guaranteed to cause a change in the output
+     - Construct perturbation direction: `d = cos(θ)·e₁ + sin(θ)·e₂`
+     - Apply perturbation: `x_perturbed = x_original + min_t · d`
+     - Calculate L2 distance between original and perturbed embeddings: `||x_perturbed - x_original||`
+     - Pass perturbed embedding through the model to get the changed final hidden state
+     - Calculate L2 distance between original and changed hidden states: `||h_changed - h_original||`
+  5. Aggregate and analyze these L2 distances (mean, median, min, max)
+  6. Save results and generate visualizations
+
+- **How to run:**
+  ```bash
+  python src/exp15_stability_boundary_analysis.py <path_to_exp12_npz_file> \
+      --precision float64 \
+      --output_dir <output_directory>
+  ```
+
+  **Examples:**
+  ```bash
+  # Using float64 precision (recommended)
+  python src/exp15_stability_boundary_analysis.py \
+      ../results/exp12_2025-12-20_10-55-48/polar_boundary_data.npz \
+      --precision float64
+
+  # Using float32 precision
+  python src/exp15_stability_boundary_analysis.py \
+      ../results/exp12_2025-12-20_10-55-48/polar_boundary_data.npz \
+      --precision float32
+  ```
+
+  **Command-line arguments:**
+  - `npz_file` (required): Path to the `.npz` file from Experiment 12
+  - `--output_dir`: Directory to save results (default: auto-generated based on input file and precision)
+  - `--precision`: Precision for perturbation calculation, either `float32` or `float64` (default: `float64`)
+
+- **Inputs:**
+  - Model path (hardcoded): `/home/chashi/Desktop/Research/My Projects/models/Llama-3.1-8B-Instruct`
+  - Experiment 12 NPZ file containing:
+    - `thetas`: Array of angles
+    - `max_s_values`: Maximum stable perturbation magnitudes
+    - `e1`, `e2`: First two singular vectors
+    - `input_text`: Original input text
+
+- **Output Structure:**
+  - Creates a directory in the same location as the input NPZ file (e.g., `../results/exp15_analysis_polar_boundary_data_float64/`)
+  - Inside this directory, it saves:
+    - **`boundary_distance_data.npz`**: NumPy archive containing:
+      - `thetas`: Array of angles (copied from Experiment 12)
+      - `max_s_values`: Maximum stable perturbation magnitudes (copied from Experiment 12)
+      - `embedding_l2_distances`: L2 distances between original and perturbed embeddings for each angle
+      - `hidden_state_l2_distances`: L2 distances between original and changed hidden states for each angle
+      - `input_text`: Original input text
+    - **`boundary_distance_data.csv`**: CSV file with columns:
+      - `theta`: Angle in radians
+      - `max_s`: Maximum stable perturbation magnitude
+      - `embedding_l2_dist`: L2 distance in embedding space
+      - `hidden_state_l2_dist`: L2 distance in hidden state space
+    - **`embedding_l2_distance.png`**: Plot showing embedding L2 distance vs. angle in degrees
+    - **`hidden_state_l2_distance.png`**: Plot showing hidden state L2 distance vs. angle in degrees
+  - Prints detailed statistics including:
+    - Embedding L2 distance statistics: mean, median, min, max
+    - Hidden state L2 distance statistics: mean, median, min, max
+
+- **Key Findings (Example Results):**
+
+  Based on the script's documentation, typical results show:
+
+  **Float64 Precision:**
+  - Embedding L2 Distance: ~3.86e-12 (mean), range: 2.06e-12 to 8.60e-12
+  - Hidden State L2 Distance: ~8.89e-05 (mean), range: 8.31e-05 to 9.89e-05
+
+  **Interpretation:**
+  - Input perturbations at the boundary are extremely small (~10⁻¹² scale)
+  - Output changes are much larger (~10⁻⁵ scale)
+  - This represents an amplification factor of approximately **10⁷** (10 million times)
+  - The model exhibits extreme sensitivity: near-imperceptible input changes lead to significant output changes
+
+- **Use Case:**
+  - Quantify the amplification of perturbations through the model
+  - Understand the relationship between input stability boundaries and output changes
+  - Provide empirical evidence for the model's numerical instability
+  - Compare stability across different directions in the embedding space
+  - Analyze whether certain directions are more or less sensitive than others
+
+- **Relationship to Other Experiments:**
+  - **Requires Experiment 12**: Uses the stability boundary data from Experiment 12 as input
+  - **Extends Experiment 12**: While Experiment 12 finds where changes occur, Experiment 15 measures how large those changes are
+  - **Complements Experiment 2**: Provides concrete L2 distance measurements vs. Experiment 2's Lipschitz constant estimates
+  - **Validates Experiment 14**: The large amplification factors support the discontinuous behavior observed in Experiment 14
+  - **Relates to Experiment 1**: Provides quantitative measurements of the output differences that Experiment 1 observed qualitatively
 
 ### Additional Analysis: PDF Word-by-Word Prediction
 
