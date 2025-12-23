@@ -128,11 +128,13 @@ def analyze_singular_vector_distances(npz_path, output_dir, precision="float64")
 
     embedding_l2_distances = np.zeros(num_vectors)
     hidden_state_l2_distances = np.zeros(num_vectors)
+    min_t_values = np.zeros(num_vectors)
 
     print("\n[4/6] Calculating L2 distances at the boundary...")
     for i in tqdm(range(num_vectors), desc="Processing singular vectors"):
         max_s = np.float32(max_s_values[i])
         min_t = np.nextafter(max_s, np.float32(np.inf))
+        min_t_values[i] = min_t
 
         # Get the i-th singular vector as the perturbation direction
         direction = Vt[i, :].to(device).float()
@@ -162,6 +164,7 @@ def analyze_singular_vector_distances(npz_path, output_dir, precision="float64")
         output_npz_path,
         singular_vector_indices=singular_vector_indices,
         max_s_values=max_s_values,
+        min_t_values=min_t_values,
         embedding_l2_distances=embedding_l2_distances,
         hidden_state_l2_distances=hidden_state_l2_distances,
         singular_values_all=S.cpu().numpy(),
@@ -170,9 +173,9 @@ def analyze_singular_vector_distances(npz_path, output_dir, precision="float64")
     print(f"Saved data to NPZ: {output_npz_path}")
 
     csv_path = os.path.join(output_dir, "singular_vector_distance_data.csv")
-    csv_data = np.vstack((singular_vector_indices, max_s_values, embedding_l2_distances, hidden_state_l2_distances)).T
+    csv_data = np.vstack((singular_vector_indices, min_t_values, embedding_l2_distances, hidden_state_l2_distances)).T
     np.savetxt(csv_path, csv_data, delimiter=",",
-               header="singular_vector_index,max_s,embedding_l2_dist,hidden_state_l2_dist", comments="")
+               header="singular_vector_index,min_t,embedding_l2_dist,hidden_state_l2_dist", comments="")
     print(f"Saved data to CSV: {csv_path}")
 
     print("\n" + "="*80)
@@ -304,6 +307,25 @@ if __name__ == "__main__":
     analyze_singular_vector_distances(args.npz_file, output_dir, args.precision)
 
 '''
+
+================================================================================
+DISTANCE STATISTICS FLOAT 32
+================================================================================
+--- Embedding L2 Distance ---
+Mean:   1.281510e-11
+Median: 1.144488e-11
+Min:    1.847193e-12
+Max:    5.506634e-11
+Std:    7.748381e-12
+
+--- Hidden State L2 Distance ---
+Mean:   9.811562e-05
+Median: 9.366439e-05
+Min:    8.460654e-05
+Max:    1.247031e-04
+Std:    9.321873e-06
+================================================================================
+
 python3 exp15_part2_singular_vector_l2_analysis.py "/path/to/exp13/singular_vector_stability_data.npz" --precision "float32"
 python3 exp15_part2_singular_vector_l2_analysis.py "/path/to/exp13/singular_vector_stability_data.npz" --output_dir "./my_results"
 '''

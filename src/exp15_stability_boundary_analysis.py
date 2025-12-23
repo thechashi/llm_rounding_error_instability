@@ -107,11 +107,13 @@ def analyze_boundary_distances(npz_path, output_dir, precision="float64"):
 
     embedding_l2_distances = np.zeros(num_angles)
     hidden_state_l2_distances = np.zeros(num_angles)
+    min_t_values = np.zeros(num_angles)
 
     print("\n[3/5] Calculating L2 distances at the boundary...")
     for i, theta in enumerate(tqdm(thetas, desc="Processing angles")):
         max_s = np.float32(max_s_values[i])
         min_t = np.nextafter(max_s, np.float32(np.inf))
+        min_t_values[i] = min_t
 
         direction = torch.cos(torch.tensor(theta, device=device)) * e1_tensor + torch.sin(torch.tensor(theta, device=device)) * e2_tensor
 
@@ -140,6 +142,7 @@ def analyze_boundary_distances(npz_path, output_dir, precision="float64"):
         output_npz_path,
         thetas=thetas,
         max_s_values=max_s_values,
+        min_t_values=min_t_values,
         embedding_l2_distances=embedding_l2_distances,
         hidden_state_l2_distances=hidden_state_l2_distances,
         input_text=input_text,
@@ -147,8 +150,8 @@ def analyze_boundary_distances(npz_path, output_dir, precision="float64"):
     print(f"Saved data to NPZ: {output_npz_path}")
 
     csv_path = os.path.join(output_dir, "boundary_distance_data.csv")
-    csv_data = np.vstack((thetas, max_s_values, embedding_l2_distances, hidden_state_l2_distances)).T
-    np.savetxt(csv_path, csv_data, delimiter=",", header="theta,max_s,embedding_l2_dist,hidden_state_l2_dist", comments="")
+    csv_data = np.vstack((thetas, min_t_values, embedding_l2_distances, hidden_state_l2_distances)).T
+    np.savetxt(csv_path, csv_data, delimiter=",", header="theta,min_t,embedding_l2_dist,hidden_state_l2_dist", comments="")
     print(f"Saved data to CSV: {csv_path}")
 
     print("\n" + "="*80)
